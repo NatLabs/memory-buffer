@@ -1,34 +1,47 @@
 name: Makefile CI
 
-on: [push, pull_request]
+on:
+    push:
+        branches: ["main"]
+    pull_request:
+        branches: ["main"]
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+    build:
+        runs-on: ubuntu-latest
 
-    name: Build and test
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 14
-      - uses: aviate-labs/setup-dfx@v0.2.3
-        with:
-          vessel-version: 0.6.3
-          dfx-version: 0.13.1
+        steps:
+            - uses: actions/checkout@v3
+            - uses: actions/setup-node@v3
+              with:
+                node-version: 18
+            - uses: aviate-labs/setup-dfx@v0.2.5
+              with:
+                dfx-version: 0.15.0
+                
+            - name: install wasmtime
+              run: |
+                curl https://wasmtime.dev/install.sh -sSf | bash
+                echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+  
+            - name: Install mocv
+              run: |
+                npm --yes -g i mocv
 
-      - name: install mops
-        run: |
-            npm --yes -g i ic-mops
-            mops i
+            - name: Select mocv version
+              run: mocv use 0.10.1
 
-      - name: install wasmtime
-        run: |
-          curl https://wasmtime.dev/install.sh -sSf | bash
-          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+            - name: install mops
+              run: |
+                  npm --yes -g i ic-mops
+                  mops i
+                  mops sources
 
-      - name: Detect warnings
-        run: make no-warn
+            - name: Detect Warnings
+              run: make no-warn
 
-      - name: Run Tests
-        run: make compile-tests
+            - name: Run Tests
+              run: |
+                dfx start --background && dfx deploy actor_test
+                dfx canister call actor_test actor_test
+                dfx stop

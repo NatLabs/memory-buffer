@@ -1,8 +1,17 @@
+import Debug "mo:base/Debug";
+import Array "mo:base/Array";
+import Iter "mo:base/Iter";
+
+import MemoryRegion "mo:memory-region/MemoryRegion";
+import StableBuffeer "mo:StableBuffer/StableBuffer";
+import Itertools "mo:itertools/Iter";
+
+import Utils "Utils";
+import BlobifyModule "Blobify";
+import MemoryBufferModule "MemoryBuffer";
+
 module {
-    /// Inline comments for documentation
-
-    public func greet(name : Text) : Text {
-        return "Hello, " # name # "!";
-    };
-
+    public let MemoryBuffer = MemoryBufferModule;
+    public type Blobify<A> = BlobifyModule.Blobify<A>;
+    public let Blobify = BlobifyModule;
 };

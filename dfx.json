@@ -1,9 +1,19 @@
 {
     "version": 1,
+    "canisters": {
+        "actor_test" : {
+            "main": "tests/MemoryBuffer.ActorTest.mo",
+            "type": "motoko"
+        },
+        "benchmarks": {
+            "main": "bench/MemoryBuffer.bench.mo",
+            "type": "motoko"
+        }
+    },
     "defaults": {
         "build": {
             "packtool": "mops sources",
-            "args": ""
+            "args": "--incremental-gc"
         }
     },
     "networks": {

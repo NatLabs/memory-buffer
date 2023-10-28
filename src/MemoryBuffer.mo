@@ -10,9 +10,6 @@ import Blob "mo:base/Blob";
 import Region "mo:base/Region";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
-import StableBuffeer "mo:StableBuffer/StableBuffer";
-import Itertools "mo:itertools/Iter";
-import Map "mo:map/Map";
 
 import Utils "Utils";
 import Blobify "Blobify";
@@ -21,20 +18,12 @@ module MemoryBuffer {
     type Iter<A> = Iter.Iter<A>;
     type MemoryRegion = MemoryRegion.MemoryRegion;
     type Pointer = MemoryRegion.Pointer;
-    // type LruCache<A, B> = LruCache.LruCache<A, B>;
-    type Map<A, B> = Map.Map<A, B>;
-
-    type WriteAheadLog = Map<Text, Map<Nat, Blob>>;
 
     public type MemoryBuffer<A> = {
         pointers : MemoryRegion;
         blobs : MemoryRegion;
-        // log: WriteAheadLog;
-        // cache : LruCache<Nat, (Pointer, A)>;
         var count : Nat;
     };
-
-    // let { nhash } = LruCache;
 
     public type Blobify<A> = Blobify.Blobify<A>;
 
@@ -44,17 +33,12 @@ module MemoryBuffer {
             case (_) 0;
         };
 
-        let buffer = {
+        return {
             pointers = MemoryRegion.new();
             blobs = MemoryRegion.new();
             // cache = LruCache.new<Nat, (Pointer, A)>(cache_size);
             var count = 0;
         };
-
-        ignore Region.grow(buffer.pointers.region, 5);
-        ignore Region.grow(buffer.blobs.region, 5);
-
-        buffer;
     };
 
     public func init<A>(blobify : Blobify<A>, size : Nat, val : A) : MemoryBuffer<A> {
@@ -81,7 +65,7 @@ module MemoryBuffer {
         let sm_buffer = MemoryBuffer.new<A>(null);
 
         for (i in Iter.range(0, arr.size() - 1)) {
-            MemoryBuffer.add(sm_buffer, blobify, arr[i]);
+            add(sm_buffer, blobify, arr[i]);
         };
 
         sm_buffer;
@@ -125,9 +109,13 @@ module MemoryBuffer {
         return (address, size);
     };
     
-    func pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Pointer {
+    func blob_pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Blob {
         let address = index * 12;
-        let pointer_blob = MemoryRegion.loadBlob(self.pointers, address, 12);
+        MemoryRegion.loadBlob(self.pointers, address, 12);
+    };
+
+    func pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Pointer {
+        let pointer_blob = blob_pointer_at_index(self, index);
         decode_pointer(pointer_blob);
     };
 
@@ -166,11 +154,11 @@ module MemoryBuffer {
         // };
 
         var pointer = pointer_at_index(self, index);
-
         let blob_value = blobify.to_blob(value);
+
         assert blob_value.size() > 0;
 
-        if (blob_value.size() == pointer.1){
+        if (blob_value.size() == pointer.1) {
             MemoryRegion.storeBlob(self.blobs, pointer.0, blob_value);
             return;
         } else {
@@ -185,7 +173,7 @@ module MemoryBuffer {
         // LruCache.put(self.cache, nhash, index, (pointer, value));
     };
 
-    public func put<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) : () {
+    public func put<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {
         if (index >= self.count) {
             Debug.trap("MemoryBuffer: Index out of bounds");
         };
@@ -288,26 +276,32 @@ module MemoryBuffer {
             return null;
         };
 
-        let ptr = 
-
         ?remove(self, blobify, (self.count - 1) : Nat);
     };
 
-    public func swap<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index_a : Nat, index_b : Nat) {
-        let ptr_a = pointer_at_index(self, index_a);
-        let ptr_b = pointer_at_index(self, index_b);
+    public func swap<A>(self : MemoryBuffer<A>, index_a : Nat, index_b : Nat) {
+        let blob_ptr_a = blob_pointer_at_index(self, index_a);
+        let blob_ptr_b = blob_pointer_at_index(self, index_b);
 
-        MemoryRegion.storeBlob(self.pointers, index_a * 12, encode_pointer(ptr_b));
-        MemoryRegion.storeBlob(self.pointers, index_b * 12, encode_pointer(ptr_a));
+        MemoryRegion.storeBlob(self.pointers, index_a * 12, blob_ptr_b);
+        MemoryRegion.storeBlob(self.pointers, index_b * 12, blob_ptr_a);
     };
 
-    public func swap_remove<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) {
-        swap<A>(self, blobify, index, self.count - 1);
+    public func swapRemove<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) {
+        swap<A>(self, index, self.count - 1);
         ignore remove<A>(self, blobify, self.count - 1);
+    };
+
+    public func reverse<A>(self: MemoryBuffer<A>) {
+        for (i in Iter.range(0, (self.count / 2) - 1)) {
+            swap<A>(self, i, self.count - i - 1);
+        };
     };
 
     public func clear<A>(self : MemoryBuffer<A>) {
         self.count := 0;
+        MemoryRegion.clear(self.pointers);
+        MemoryRegion.clear(self.blobs);
         // LruCache.clear(self.cache);
     };
 

@@ -3,8 +3,6 @@ import Array "mo:base/Array";
 import Iter "mo:base/Iter";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
-import StableBuffeer "mo:StableBuffer/StableBuffer";
-import Itertools "mo:itertools/Iter";
 
 import Utils "Utils";
 import BlobifyModule "Blobify";

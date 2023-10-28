@@ -4,7 +4,6 @@ import Nat8 "mo:base/Nat8";
 import Prelude "mo:base/Prelude";
 import Iter "mo:base/Iter";
 import Result "mo:base/Result";
-import Itertools "mo:itertools/Iter";
 
 module {
 
@@ -61,17 +60,4 @@ module {
         return n;
     };
 
-    public func blob_concat(a: Blob, b: Blob) : Blob {
-        let iter = Itertools.chain(a.vals(), b.vals());
-
-        let bytes = Array.tabulate(
-            a.size() + b.size(),
-            func(i : Nat) : Nat8 {
-                let ?byte = iter.next() else Prelude.unreachable();
-                byte
-            },
-        );
-
-        Blob.fromArray(bytes)
-    };  
 };

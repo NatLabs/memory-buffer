@@ -1,10 +1,10 @@
 ## MemoryBuffer
-A persistent buffer implementation in motoko which makes use of the [memory-region]() library for re-allocation memory. This buffer supports elements of arbitrary sizes (no need to specify the max size of the elements).
+A persistent buffer implementation in motoko which makes use of the [memory-region](https://github.com/NatLabs/memory-region) library for re-allocating stable memory. The **MemoryBuffer** addresses the limitatons of heap storage by storing its elements in stable memory, which has the capacity to store significantly more data, up to 64 GiB.
 
-This library is still  in development and hasn't tested for production use. If you find any bugs or have any suggestions, please open an issue [here]().
+> Note that this library is still in development and hasn't been tested for production use. If you find any bugs or have any suggestions, please open an issue [here](https://github.com/NatLabs/memory-buffer/issues).
 
 ### How It Works
-The buffer is built using two Region modules:
+The buffer is built using two [Region](https://internetcomputer.org/docs/current/motoko/main/base/Region/) modules:
 
 - **Blob Region**: Stores all your elements as blobs in stable memory, re-allocating memory as needed. 
     > Memory allocation in the **Blob Region** is not contiguous, as elements at a specific index may be removed and the memory block reused for an element at a different index in size or may be removed from the buffer.
@@ -21,14 +21,19 @@ The buffer is built using two Region modules:
     - 4 bytes for the size of the element
   - Each element's size when converted to a `Blob` must be between 1 and 4 GiB.
   - Additional instructions and heap allocations required for storing and retrieving free memory blocks.
-  - Could potentially causes external fragmentation during memory block reallocations, resulting in a number small blocks that sum up to the needed size but cannot be used as they are scattered across the memory region and not contiguous.
+  - Could potentially cause external fragmentation during memory block reallocations, resulting in a number small blocks that sum up to the needed size but can't be re-allocated because they are not contiguous.
 
-## Usage
-- Import the necessary modules
+## Getting Started
+#### Installation
+- Install [mops](https://docs.mops.one/quick-start)
+- Run `mops add memory-buffer` in your project directory
+  
+#### Import modules
+
 ```motoko
   import { MemoryBuffer; Blobify } "mo:memory-buffer";
 ```
-- 
+#### Usage Examples
 ```motoko
   stable let mem_buffer = MemoryBuffer.new<Nat>();
 
@@ -57,22 +62,33 @@ Benchmarking the performance with 10k entries
 - **put() (new > prev)** - updating elements in the buffer where number of bytes of the new element is greater than the number of bytes of the previous element
 - **remove()** - removing the first element in the buffer till the buffer is empty resulting in the worst case scenario
 - **insert()** - inserting elements at the beginning of the buffer till the buffer has 10k elements resulting in the worst case scenario
-- removeLast() - removing the last element in the buffer till the buffer is empty
+- **removeLast()** - removing the last element in the buffer till the buffer is empty
 
 #### Instructions
 
-|-             |      add() |      get() | put() (new == prev) | put() (new > prev) |       remove() |      insert() | removeLast() |
-| :----------- | ---------: | ---------: | ------------------: | -----------------: | -------------: | ------------: | -----------: |
-| Buffer       |  7_506_635 |  2_442_253 |           2_803_133 |          3_143_921 | 10_855_068_046 | 9_555_436_925 |    5_543_704 |
-| MemoryBuffer | 54_470_575 | 39_346_739 |          44_582_289 |        301_024_818 |  1_509_550_380 | 1_275_731_638 |  298_371_818 |
+| Methods             |         Buffer |  MemoryBuffer |
+| :------------------ | -------------: | ------------: |
+| add()               |      7_506_635 |    47_877_490 |
+| get()               |      2_442_253 |    35_999_010 |
+| put() (new == prev) |      2_803_133 |    37_989_204 |
+| put() (new > prev)  |      3_143_921 |   124_989_066 |
+| remove()            | 10_855_068_046 | 1_499_546_797 |
+| insert()            |  9_555_436_925 | 1_266_981_621 |
+| removeLast()        |      5_543_704 |   259_616_440 |
 
 
 #### Heap
+| Methods             |  Buffer | MemoryBuffer |
+| :------------------ | ------: | -----------: |
+| add()               | 154_740 |    1_527_936 |
+| get()               |   9_008 |    1_846_984 |
+| put() (new == prev) |   9_008 |    1_727_936 |
+| put() (new > prev)  |   9_008 |    3_974_292 |
+| remove()            |  57_716 |    6_644_304 |
+| insert()            | 154_896 |    1_503_732 |
+| removeLast()        |  57_700 |    6_418_460 |
 
-|-             |     add() |     get() | put() (new == prev) | put() (new > prev) |  remove() |  insert() | removeLast() |
-| :----------- | --------: | --------: | ------------------: | -----------------: | --------: | --------: | -----------: |
-| Buffer       |   154_740 |     9_008 |               9_008 |              9_008 |    57_716 |   154_896 |       57_660 |
-| MemoryBuffer | 1_604_516 | 1_484_576 |           1_804_516 |          8_114_116 | 6_918_196 | 1_767_860 |    6_631_468 |
+> Generate benchmarks by running `mops bench` in the project directory.
 
 ## Future Work
 - Improve perfomance. 

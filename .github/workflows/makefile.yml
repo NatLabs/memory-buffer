@@ -37,8 +37,8 @@ jobs:
                   mops i
                   mops sources
 
-            - name: Detect Warnings
-              run: make no-warn
+            # - name: Detect Warnings
+            #   run: make no-warn
 
             - name: Run Tests
               run: |

@@ -75,7 +75,6 @@ module {
                         ignore buffer.removeLast();
                     };
                 };
-
                 case ("MemoryBuffer", "add()") {
                     for (i in Iter.range(0, limit - 1)) {
                         MemoryBuffer.add(memory_buffer, Blobify.Nat, i);

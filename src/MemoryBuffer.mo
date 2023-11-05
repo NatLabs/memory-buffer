@@ -4,6 +4,7 @@ import Iter "mo:base/Iter";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
+import Nat32 "mo:base/Nat32";
 import Nat64 "mo:base/Nat64";
 import Buffer "mo:base/Buffer";
 import Blob "mo:base/Blob";
@@ -100,23 +101,18 @@ module MemoryBuffer {
         return Blob.fromArray(arr);
     };
 
-    func decode_pointer(blob : Blob) : Pointer {
-        let bytes = Blob.toArray(blob);
-
-        let address = address_from_pointer_bytes(bytes);
-        let size = size_from_pointer_bytes(bytes);
-
-        return (address, size);
-    };
-    
     func blob_pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Blob {
         let address = index * 12;
         MemoryRegion.loadBlob(self.pointers, address, 12);
     };
 
     func pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Pointer {
-        let pointer_blob = blob_pointer_at_index(self, index);
-        decode_pointer(pointer_blob);
+        let pointer_address = Nat64.fromNat(index * 12);
+
+        let value_address = Region.loadNat64(self.pointers.region, pointer_address);
+        let value_size = Region.loadNat32(self.pointers.region, pointer_address + 8);
+
+        return (Nat64.toNat(value_address), Nat32.toNat(value_size));
     };
 
      func address_from_pointer_bytes<A>(bytes: [Nat8]): Nat {
@@ -142,9 +138,13 @@ module MemoryBuffer {
     };
 
     func update_pointer_at_index<A>(self: MemoryBuffer<A>, index : Nat, pointer : Pointer) {
-        let address = index * 12;
-        let pointer_blob = encode_pointer(pointer);
-        MemoryRegion.storeBlob(self.pointers, address, pointer_blob);
+        let pointer_address = Nat64.fromNat(index * 12);
+
+        let value_address = Nat64.fromNat(pointer.0);
+        let value_size = Nat32.fromNat(pointer.1);
+
+        Region.storeNat64(self.pointers.region, pointer_address, value_address);
+        Region.storeNat32(self.pointers.region, pointer_address + 8, value_size);
     };
 
     func internal_replace<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {

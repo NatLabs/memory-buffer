@@ -59,13 +59,16 @@ module {
         from_blob = func(blob : Blob) : Nat {
             var n = 0;
             var i = 0;
-            let bytes = Base.Array.reverse(Base.Blob.toArray(blob));
+            let bytes = Base.Blob.toArray(blob);
 
-            for (byte in bytes.vals()) {
+            var j = bytes.size();
+
+            while (j > 0){
+                let byte = bytes.get(j - 1);
                 n *= 255;
                 n += Base.Nat8.toNat(byte);
 
-                i += 1;
+                j -= 1;
             };
 
             n;

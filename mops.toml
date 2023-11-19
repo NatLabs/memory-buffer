@@ -3,11 +3,11 @@ name = "memory-buffer"
 version = "0.0.1"
 description = "A persistent buffer implementation in motoko."
 repository = "https://github.com/NatLabs/memory-buffer"
-keywords = ["region", "stable", "persistent", "collections", "encoding"]
+keywords = [ "region", "stable", "persistent", "collections", "encoding" ]
 
 [dependencies]
-base = "0.10.1"
-memory-region = "0.0.4"
+base = "0.10.2"
+memory-region = "0.1.0"
 
 [dev-dependencies]
 test = "1.0.1"

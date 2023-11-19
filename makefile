@@ -1,13 +1,23 @@
 .PHONY: test compile-tests docs no-warn
 
-# runs all tests using the moc interpreter (not all features in motoko are supported)
-test: 
-	find tests -type f -name '*.Test.mo' -print0 | xargs -0 $(shell mocv bin current)/moc -r $(shell mops sources) -wasi-system-api
+MocvVersion = 0.10.2
+MocvPath = $(shell mocv bin $$MocvVersion)
 
-# treats warnings as errors and prints them to stdout
-no-warn:
-	find src -type f -name '*.mo' -print0 | xargs -0 $(shell mocv bin current)/moc -r $(shell mops sources) -Werror -wasi-system-api
+set-moc-version:
+	mocv use $(MocvVersion)
 
-docs: 
-	$(shell mocv bin current)/mo-doc
-	$(shell mocv bin current)/mo-doc --format plain
+set-dfx-moc-path: set-moc-version
+	export DFX_MOC_PATH=$(MocvPath)/moc
+
+test: set-moc-version
+	mops test
+
+check: set-moc-version
+	find src -type f -name '*.mo' -print0 | xargs -0 $(MocvPath)/moc -r $(shell mops sources) -Werror -wasi-system-api
+
+docs:  set-moc-version
+	$(MocvPath)/mo-doc
+	$(MocvPath)/mo-doc --format plain
+
+bench: set-dfx-moc-path
+	mops bench

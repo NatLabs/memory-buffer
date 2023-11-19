@@ -23,6 +23,7 @@ module MemoryBuffer {
     public type MemoryBuffer<A> = {
         pointers : MemoryRegion;
         blobs : MemoryRegion;
+        // cache = LruCache<Nat, A>;
         var count : Nat;
     };
 
@@ -37,7 +38,7 @@ module MemoryBuffer {
         return {
             pointers = MemoryRegion.new();
             blobs = MemoryRegion.new();
-            // cache = LruCache.new<Nat, (Pointer, A)>(cache_size);
+            // cache = LruCache.new<Nat, A>(cache_size);
             var count = 0;
         };
     };
@@ -76,101 +77,72 @@ module MemoryBuffer {
         return self.count;
     };
 
+    /// Returns information about the bytes used by the buffer.
     public func size_info() : () {};
-
-    func encode_pointer(address: Nat, size: Nat) : Blob {
-        let address_64 = Nat64.fromNat(address);
-        let size_64 = Nat64.fromNat(size);
-
-        // performs 50% better than Array.tabulate()
-        let arr : [Nat8] = [
-            Nat8.fromNat(Nat64.toNat((address_64 >> 56) & 0xff)),
-            Nat8.fromNat(Nat64.toNat((address_64 >> 48) & 0xff)),
-            Nat8.fromNat(Nat64.toNat((address_64 >> 40) & 0xff)),
-            Nat8.fromNat(Nat64.toNat((address_64 >> 32) & 0xff)),
-            Nat8.fromNat(Nat64.toNat((address_64 >> 24) & 0xff)),
-            Nat8.fromNat(Nat64.toNat((address_64 >> 16) & 0xff)),
-            Nat8.fromNat(Nat64.toNat((address_64 >> 8) & 0xff)),
-            Nat8.fromNat(Nat64.toNat(address_64 & 0xff)),
-            Nat8.fromNat(Nat64.toNat((size_64 >> 24) & 0xff)),
-            Nat8.fromNat(Nat64.toNat((size_64 >> 16) & 0xff)),
-            Nat8.fromNat(Nat64.toNat((size_64 >> 8) & 0xff)),
-            Nat8.fromNat(Nat64.toNat(size_64 & 0xff)),
-        ];
-
-        return Blob.fromArray(arr);
-    };
 
     func blob_pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Blob {
         let address = index * 12;
         MemoryRegion.loadBlob(self.pointers, address, 12);
     };
 
-    func pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Pointer {
+    func address_at_index<A>(self : MemoryBuffer<A>, index : Nat): Nat {
         let pointer_address = Nat64.fromNat(index * 12);
+        let address = Region.loadNat64(self.pointers.region, pointer_address);
+        Nat64.toNat(address)
+    };
 
-        let value_address = Region.loadNat64(self.pointers.region, pointer_address);
+    func size_at_index<A>(self: MemoryBuffer<A>, index: Nat): Nat {
+        let pointer_address = Nat64.fromNat(index * 12);
         let value_size = Region.loadNat32(self.pointers.region, pointer_address + 8);
 
-        return (Nat64.toNat(value_address), Nat32.toNat(value_size));
+        Nat32.toNat(value_size)
     };
 
-     func address_from_pointer_bytes<A>(bytes: [Nat8]): Nat {
-        var address_64 : Nat64 = Nat64.fromNat(Nat8.toNat(bytes[0])) << 56
-            | Nat64.fromNat(Nat8.toNat(bytes[1])) << 48 
-            | Nat64.fromNat(Nat8.toNat(bytes[2])) << 40
-            | Nat64.fromNat(Nat8.toNat(bytes[3])) << 32
-            | Nat64.fromNat(Nat8.toNat(bytes[4])) << 24
-            | Nat64.fromNat(Nat8.toNat(bytes[5])) << 16
-            | Nat64.fromNat(Nat8.toNat(bytes[6])) << 8
-            | Nat64.fromNat(Nat8.toNat(bytes[7]));
-
-        Nat64.toNat(address_64);
-    };
-
-    func size_from_pointer_bytes<A>(bytes: [Nat8]): Nat {
-        var size_64 : Nat64 = Nat64.fromNat(Nat8.toNat(bytes[8])) << 24
-            | Nat64.fromNat(Nat8.toNat(bytes[9])) << 16
-            | Nat64.fromNat(Nat8.toNat(bytes[10])) << 8
-            | Nat64.fromNat(Nat8.toNat(bytes[11]));
-
-        Nat64.toNat(size_64)
-    };
-
-    func update_pointer_at_index<A>(self: MemoryBuffer<A>, index : Nat, pointer : Pointer) {
+    func update_pointer_at_index<A>(self: MemoryBuffer<A>, index : Nat, address : Nat, size: Nat) {
         let pointer_address = Nat64.fromNat(index * 12);
 
-        let value_address = Nat64.fromNat(pointer.0);
-        let value_size = Nat32.fromNat(pointer.1);
+        let value_address = Nat64.fromNat(address);
+        let value_size = Nat32.fromNat(size);
 
         Region.storeNat64(self.pointers.region, pointer_address, value_address);
         Region.storeNat32(self.pointers.region, pointer_address + 8, value_size);
     };
 
     func internal_replace<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {
-        // var pointer = switch (LruCache.remove(self.cache, nhash, index)) {
+        // let blob_value = switch (LruCache.remove(self.cache, nhash, index)) {
         //     case (?(ptr, _)) { ptr };
         //     case (_) { pointer_at_index(self, index) };
         // };
 
-        var pointer = pointer_at_index(self, index);
+        let address = address_at_index(self, index);
+        let size = size_at_index(self, index);
+
+        // ignore LruCache.remove(self.cache, nhash, address);
+
         let blob_value = blobify.to_blob(value);
 
         assert blob_value.size() > 0;
 
-        if (blob_value.size() == pointer.1) {
-            MemoryRegion.storeBlob(self.blobs, pointer.0, blob_value);
+        if (blob_value.size() < size) {
+            let extra_address = address + blob_value.size();
+            let extra_size = size - blob_value.size() : Nat;
+
+            ignore MemoryRegion.deallocate(self.blobs, extra_address, extra_size);
+
+            MemoryRegion.storeBlob(self.blobs, address, blob_value);
+            Region.storeNat32(self.pointers.region, Nat64.fromNat(address + 8), Nat32.fromNat(blob_value.size()));
+
+        }else if (blob_value.size() == size) {
+            MemoryRegion.storeBlob(self.blobs, address, blob_value);
             return;
         } else {
-            ignore MemoryRegion.deallocate(self.blobs, pointer.0, pointer.1);
+            ignore MemoryRegion.deallocate(self.blobs, address, size);
             
-            let address = MemoryRegion.addBlob(self.blobs, blob_value);
-            pointer := (address, blob_value.size());
+            let new_address = MemoryRegion.addBlob(self.blobs, blob_value);
 
-            update_pointer_at_index(self, index, pointer);
+            update_pointer_at_index(self, index, new_address, blob_value.size());
         };
 
-        // LruCache.put(self.cache, nhash, index, (pointer, value));
     };
 
     public func put<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {
@@ -191,21 +163,37 @@ module MemoryBuffer {
         return ?value;
     };
 
-    public func get<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) : A {
-        let (address, size) = pointer_at_index(self, index);
+    func get_without_cache_update<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) : A {
+        let address = address_at_index(self, index);
+
+        // switch (LruCache.get(self.cache, nhash, address)) {
+        //     case (?value) return value;
+        //     case (_) {};
+        // };
+
+        let size = size_at_index(self, index);
+
         let blob_value = MemoryRegion.loadBlob(self.blobs, address, size);
-        return blobify.from_blob(blob_value);
+        blobify.from_blob(blob_value);
+    };
+
+    public func get<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) : A {
+        let val =  get_without_cache_update(self, blobify, index);
+
+        // LruCache.put(self.cache, nhash, address, value);
+
+        val
     };
 
     public func add<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, value : A) {
         let blob_value = blobify.to_blob(value);
-        assert blob_value.size() > 0;
+        assert blob_value.size() > 0; // handle in memory_region (just ignore empty sizes)
         let address = MemoryRegion.addBlob(self.blobs, blob_value);
 
-        let pointer_blob = encode_pointer(address, blob_value.size());
-        ignore MemoryRegion.addBlob(self.pointers, pointer_blob);
+        MemoryRegion.growIfNeeded(self.pointers, 12);
+        update_pointer_at_index(self, self.count, address, blob_value.size());
+        self.pointers.size += 12;
 
-        // LruCache.put(self.cache, nhash, self.count, (pointer, value));
         self.count += 1;
     };
 
@@ -232,9 +220,13 @@ module MemoryBuffer {
 
         return object {
             public func next() : ?A {
-                let val = getOpt(self, blobify, i);
+                if (i >= self.count) {
+                    return null;
+                };
+                
+                let val = get_without_cache_update(self, blobify, i);
                 i += 1;
-                val;
+                ?val;
             };
         };
     };
@@ -259,11 +251,22 @@ module MemoryBuffer {
             Debug.trap("MemoryBuffer: Index out of bounds");
         };
 
-        let ptr = pointer_at_index(self, index);
-        let (address, size) = ptr;
+        let address = address_at_index(self, index);
+        let size = size_at_index(self, index);
 
         let blob_value = MemoryRegion.removeBlob(self.blobs, address, size);
         let value = blobify.from_blob(blob_value);
+        // let value = switch(LRUCache.remove(self.cache, nhash, address)) {
+        //     case (?value) { 
+        //          ignore MemoryRegion.deallocate(self.blobs, address, size);
+        //          value 
+        //     };
+        //     case (_) { 
+        //          let blob_value = MemoryRegion.removeBlob(self.blobs, address, size);
+        //          blobify.from_blob(blob_value) 
+        //     };
+        // };
+
 
         shift_pointers(self, index + 1, self.count, -1);
         self.count -= 1;
@@ -324,8 +327,7 @@ module MemoryBuffer {
 
         let address = MemoryRegion.addBlob(self.blobs, value_blob);
 
-        let pointer = (address, value_blob.size());
-        update_pointer_at_index(self, index, pointer);
+        update_pointer_at_index(self, index, address, value_blob.size());
 
         self.count += 1;
     };

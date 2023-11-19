@@ -1,47 +1,57 @@
 name: Makefile CI
 
-on:
-    push:
-        branches: ["main"]
-    pull_request:
-        branches: ["main"]
+on: 
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "*"
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-        steps:
-            - uses: actions/checkout@v3
-            - uses: actions/setup-node@v3
-              with:
-                node-version: 18
-            - uses: aviate-labs/setup-dfx@v0.2.5
-              with:
-                dfx-version: 0.15.0
-                
-            - name: install wasmtime
-              run: |
-                curl https://wasmtime.dev/install.sh -sSf | bash
-                echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
-  
-            - name: Install mocv
-              run: |
-                npm --yes -g i mocv
+    name: Build and test
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
 
-            - name: Select mocv version
-              run: mocv use 0.10.1
+      - name: Cache Node modules
+        uses: actions/cache@v2
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
-            - name: install mops
-              run: |
-                  npm --yes -g i ic-mops
-                  mops i
-                  mops sources
+      - name: Cache mops packages
+        uses: actions/cache@v3
+        with:
+          key: mops-packages-${{ hashFiles('mops.toml') }}
+          path: |
+            ~/.cache/mops
+            ~/mops
 
-            # - name: Detect Warnings
-            #   run: make no-warn
+      - uses: aviate-labs/setup-dfx@v0.2.3
+        with:
+          dfx-version: 0.15.0
 
-            - name: Run Tests
-              run: |
-                dfx start --background && dfx deploy actor_test
-                dfx canister call actor_test actor_test
-                dfx stop
+      - name: Install mops & mocv
+        run: |
+            npm -g i mocv
+            npm --yes -g i ic-mops
+            mops i
+
+      - name: install wasmtime
+        run: |
+          curl https://wasmtime.dev/install.sh -sSf | bash
+          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+
+      - name: Detect warnings
+        run: make check
+
+      - name: Run Tests
+        run: make test

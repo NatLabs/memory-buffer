@@ -1,5 +1,33 @@
+# initial
 
-# removing encode_pointer
+Instructions
+
+| Methods             |         Buffer |  MemoryBuffer |
+| :------------------ | -------------: | ------------: |
+| add()               |      7_506_635 |    47_877_490 |
+| get()               |      2_442_253 |    35_999_010 |
+| put() (new == prev) |      2_803_133 |    37_989_204 |
+| put() (new > prev)  |      3_143_921 |   124_989_066 |
+| remove()            | 10_855_068_046 | 1_499_546_797 |
+| insert()            |  9_555_436_925 | 1_266_981_621 |
+| removeLast()        |      5_543_704 |   259_616_440 |
+
+
+Heap
+
+| Methods             |  Buffer | MemoryBuffer |
+| :------------------ | ------: | -----------: |
+| add()               | 154_740 |    1_527_936 |
+| get()               |   9_008 |    1_846_984 |
+| put() (new == prev) |   9_008 |    1_727_936 |
+| put() (new > prev)  |   9_008 |    3_974_292 |
+| remove()            |  57_716 |    6_644_304 |
+| insert()            | 154_896 |    1_503_732 |
+| removeLast()        |  57_700 |    6_418_460 |
+
+
+
+### Use Region.storeNat64 and Region.loadNat64 instead of encoding manually
 Instructions
 
 |                     |         Buffer |  MemoryBuffer |
@@ -25,7 +53,7 @@ Heap
 | insert()            | 154_896 |      427_316 |
 | removeLast()        |  57_700 |    6_723_228 |
 
-# split pointer at index to address and size at index
+### split pointer at index fn into two fns -> address and size at index
 
 Instructions
 

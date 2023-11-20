@@ -1,3 +1,5 @@
+/// A memory buffer is a data structure that stores a sequence of values in memory.
+
 import Debug "mo:base/Debug";
 import Array "mo:base/Array";
 import Iter "mo:base/Iter";
@@ -20,20 +22,45 @@ module MemoryBuffer {
     type MemoryRegion = MemoryRegion.MemoryRegion;
     type Pointer = MemoryRegion.Pointer;
 
+    /// Internal Structure of the memory buffer.
     public type MemoryBuffer<A> = {
+        /// The memory region that stores the pointers to the serialized values.
         pointers : MemoryRegion;
+
+        /// The memory region that stores the serialized values.
         blobs : MemoryRegion;
+
         // cache = LruCache<Nat, A>;
+
+        /// The number of values in the buffer.
         var count : Nat;
     };
 
+    public type MemoryBufferRegion = {
+        pointers : MemoryRegion;
+        blobs: MemoryRegion;
+    };
+
+    public func new_region() : MemoryBufferRegion {
+        {
+            pointers = MemoryRegion.new();
+            blobs = MemoryRegion.new();
+        };
+    };
+
+    public class MemoryBufferClass<A> (internal_region: MemoryBufferRegion, blobify: Blobify<A>, handle_low_memory: () -> ()){
+
+    };
+
+    /// The Blobify typeclass is used to serialize and deserialize values.
     public type Blobify<A> = Blobify.Blobify<A>;
 
-    public func new<A>(opt_cache_size : ?Nat) : MemoryBuffer<A> {
-        let cache_size = switch (opt_cache_size) {
-            case (?size) size;
-            case (_) 0;
-        };
+    /// Creates a new memory buffer.
+    public func new<A>() : MemoryBuffer<A> {
+        // let cache_size = switch (opt_cache_size) {
+        //     case (?size) size;
+        //     case (_) 0;
+        // };
 
         return {
             pointers = MemoryRegion.new();
@@ -43,8 +70,9 @@ module MemoryBuffer {
         };
     };
 
+    /// Initializes a memory buffer with a given value and size.
     public func init<A>(blobify : Blobify<A>, size : Nat, val : A) : MemoryBuffer<A> {
-        let sm_buffer = MemoryBuffer.new<A>(null);
+        let sm_buffer = MemoryBuffer.new<A>();
 
         for (i in Iter.range(1, size)) {
             MemoryBuffer.add(sm_buffer, blobify, val);
@@ -53,8 +81,9 @@ module MemoryBuffer {
         sm_buffer;
     };
 
+    /// Initializes a memory buffer with a given function and size.
     public func tabulate<A>(blobify : Blobify<A>, size : Nat, fn : (i : Nat) -> A) : MemoryBuffer<A> {
-        let sm_buffer = MemoryBuffer.new<A>(null);
+        let sm_buffer = MemoryBuffer.new<A>();
 
         for (i in Iter.range(0, size - 1)) {
             MemoryBuffer.add(sm_buffer, blobify, fn(i));
@@ -63,8 +92,9 @@ module MemoryBuffer {
         sm_buffer;
     };
 
+    /// Initializes a memory buffer with a given array.
     public func fromArray<A>(blobify : Blobify<A>, arr : [A]) : MemoryBuffer<A> {
-        let sm_buffer = MemoryBuffer.new<A>(null);
+        let sm_buffer = MemoryBuffer.new<A>();
 
         for (i in Iter.range(0, arr.size() - 1)) {
             add(sm_buffer, blobify, arr[i]);
@@ -73,6 +103,7 @@ module MemoryBuffer {
         sm_buffer;
     };
 
+    /// Returns the number of elements in the buffer.
     public func size<A>(self : MemoryBuffer<A>) : Nat {
         return self.count;
     };
@@ -145,6 +176,7 @@ module MemoryBuffer {
 
     };
 
+    /// Replaces the value at the given index with the given value.
     public func put<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {
         if (index >= self.count) {
             Debug.trap("MemoryBuffer: Index out of bounds");
@@ -153,6 +185,7 @@ module MemoryBuffer {
         internal_replace(self, blobify, index, value);
     };
 
+    /// Retrieves the value at the given index if it exists. Otherwise returns null.
     public func getOpt<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) : ?A {
         if (index >= self.count) {
             return null;
@@ -177,6 +210,7 @@ module MemoryBuffer {
         blobify.from_blob(blob_value);
     };
 
+    /// Retrieves the value at the given index. Traps if the index is out of bounds.
     public func get<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) : A {
         let val =  get_without_cache_update(self, blobify, index);
 
@@ -185,6 +219,7 @@ module MemoryBuffer {
         val
     };
 
+    /// Adds a value to the end of the buffer.
     public func add<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, value : A) {
         let blob_value = blobify.to_blob(value);
         assert blob_value.size() > 0; // handle in memory_region (just ignore empty sizes)
@@ -197,24 +232,28 @@ module MemoryBuffer {
         self.count += 1;
     };
 
+    /// Adds all the values from the given buffer to the end of this buffer.
     public func append<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, other : MemoryBuffer<A>) {
         for (value in vals(other, blobify)) {
             add(self, blobify, value);
         };
     };
 
+    /// Adds all the values from the given array to the end of this buffer.
     public func appendArray<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, blobs : [A]) {
         for (value in blobs.vals()) {
             add(self, blobify, value);
         };
     };
 
+    /// Adds all the values from the given buffer to the end of this buffer.
     public func appendBuffer<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, other : { vals : () -> Iter<A> }) {
         for (value in other.vals()) {
             add(self, blobify, value);
         };
     };
 
+    /// Returns an iterator over the values in the buffer.
     public func vals<A>(self : MemoryBuffer<A>, blobify : Blobify<A>) : Iter<A> {
         var i = 0;
 
@@ -246,6 +285,7 @@ module MemoryBuffer {
 
     };
 
+    /// Removes the value at the given index. Traps if the index is out of bounds.
     public func remove<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) : A {
         if (index >= self.count) {
             Debug.trap("MemoryBuffer: Index out of bounds");
@@ -274,6 +314,7 @@ module MemoryBuffer {
         return value;
     };
 
+    /// Removes the last value in the buffer, if it exists. Otherwise returns null.
     public func removeLast<A>(self : MemoryBuffer<A>, blobify : Blobify<A>) : ?A {
         if (self.count == 0) {
             return null;
@@ -282,6 +323,7 @@ module MemoryBuffer {
         ?remove(self, blobify, (self.count - 1) : Nat);
     };
 
+    /// Swaps the values at the given indices.
     public func swap<A>(self : MemoryBuffer<A>, index_a : Nat, index_b : Nat) {
         let blob_ptr_a = blob_pointer_at_index(self, index_a);
         let blob_ptr_b = blob_pointer_at_index(self, index_b);
@@ -290,17 +332,20 @@ module MemoryBuffer {
         MemoryRegion.storeBlob(self.pointers, index_b * 12, blob_ptr_a);
     };
 
+    /// Swaps the value at the given index with the last index, so that it can be removed in O(1) time.
     public func swapRemove<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) {
         swap<A>(self, index, self.count - 1);
         ignore remove<A>(self, blobify, self.count - 1);
     };
 
+    /// Reverses the order of the values in the buffer.
     public func reverse<A>(self: MemoryBuffer<A>) {
         for (i in Iter.range(0, (self.count / 2) - 1)) {
             swap<A>(self, i, self.count - i - 1);
         };
     };
 
+    /// Clears the buffer.
     public func clear<A>(self : MemoryBuffer<A>) {
         self.count := 0;
         MemoryRegion.clear(self.pointers);
@@ -308,6 +353,7 @@ module MemoryBuffer {
         // LruCache.clear(self.cache);
     };
 
+    /// Inserts a value at the given index.
     public func insert<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {
         if (index == self.count) {
             add(self, blobify, value);
@@ -332,6 +378,7 @@ module MemoryBuffer {
         self.count += 1;
     };
 
+    /// Converts a memory buffer to an array.
     public func toArray<A>(self : MemoryBuffer<A>, blobify : Blobify<A>) : [A] {
         Array.tabulate(
             self.count,

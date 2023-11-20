@@ -34,7 +34,7 @@ module {
         ]);
 
         let buffer = Buffer.Buffer<Nat>(8);
-        let memory_buffer = MemoryBuffer.new<Nat>(null);
+        let memory_buffer = MemoryBuffer.new<Nat>();
 
         let limit = 10_000;
         bench.runner(

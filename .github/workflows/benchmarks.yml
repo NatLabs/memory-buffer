@@ -46,7 +46,7 @@ jobs:
       - name: Install mops & mocv
         run: |
           npm -g i mocv
-          npm --yes -g i ic-mops
+          npm --yes -g i ic-mops@latest
           mops i
 
       - name: Install wasmtime

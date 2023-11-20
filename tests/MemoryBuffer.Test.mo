@@ -12,7 +12,7 @@ suite(
         test(
             "add() to Buffer",
             func() {
-                let buffer = MemoryBuffer.new<Nat>(?10);
+                let buffer = MemoryBuffer.new<Nat>();
 
                 MemoryBuffer.add(buffer, Blobify.Nat, 1);
                 MemoryBuffer.add(buffer, Blobify.Nat, 2);
@@ -39,7 +39,7 @@ suite(
         test(
             "remove() from Buffer",
             func() {
-                let buffer = MemoryBuffer.new<Nat>(?10);
+                let buffer = MemoryBuffer.new<Nat>();
 
                 MemoryBuffer.appendArray(buffer, Blobify.Nat, [1, 2, 3, 4, 5]);
 
@@ -54,7 +54,7 @@ suite(
         test(
             "removeLast() from Buffer",
             func() {
-                let buffer = MemoryBuffer.new<Nat>(?10);
+                let buffer = MemoryBuffer.new<Nat>();
 
                 MemoryBuffer.appendArray(buffer, Blobify.Nat, [1, 2, 3, 4, 5]);
 

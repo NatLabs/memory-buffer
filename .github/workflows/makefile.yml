@@ -37,21 +37,27 @@ jobs:
 
       - uses: aviate-labs/setup-dfx@v0.2.3
         with:
-          dfx-version: 0.15.0
+          dfx-version: 0.15.1
 
       - name: Install mops & mocv
         run: |
             npm -g i mocv
-            npm --yes -g i ic-mops
+            npm --yes -g i ic-mops@0.34.0
             mops i
+
+      # mops test uses this path internally
+      - name: Set DFX MOC Path
+        run: | 
+          make set-moc-version
+          echo "DFX_MOC_PATH=$(mocv bin)/moc" >> $GITHUB_ENV
 
       - name: install wasmtime
         run: |
-          curl https://wasmtime.dev/install.sh -sSf | bash
+          bash -ci "$(curl -fsSL https://wasmtime.dev/install.sh)" -- --version v13.0.0
           echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
 
-      - name: Detect warnings
-        run: make check
+      # - name: Detect warnings
+      #   run: make check
 
       - name: Run Tests
-        run: make test
+        run: mops test

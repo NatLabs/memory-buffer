@@ -1,3 +1,19 @@
+/// Blobify is a module that provides a generic interface for converting
+/// values to and from blobs. It is intended to be used for serializing 
+/// and deserializing values that will be stored in persistent stable memory.
+///
+/// The Blobify module provides a default implementation for the following
+/// types:
+/// - Nat
+/// - Nat8
+/// - Nat16
+/// - Nat32
+/// - Nat64
+/// - Blob
+/// - Bool
+/// - Text
+/// - Principal
+
 import Prelude "mo:base/Prelude";
 import TextModule "mo:base/Text";
 import BlobModule "mo:base/Blob";
@@ -32,7 +48,7 @@ module {
     };
 
     // Default blobify helpers return blobs in little-endian format.
-    public let Nat = {
+    public let Nat : Blobify<Nat> = {
         to_blob = func(n : Nat) : Blob {
             if (n == 0) { return "\00" };
             var num = n;
@@ -75,12 +91,12 @@ module {
         };
     };
 
-    public let Nat8 = {
+    public let Nat8 : Blobify<Nat8> = {
         to_blob = func(n : Nat8) : Blob { Base.Blob.fromArray([n]) };
         from_blob = func(blob : Blob) : Nat8 { Base.Blob.toArray(blob)[0] };
     };
 
-    public let Nat16 = {
+    public let Nat16 : Blobify<Nat16> = {
         to_blob = func(n : Nat16) : Blob {
             Base.Blob.fromArray([
                 Base.Nat8.fromNat16(n & 0xff),
@@ -95,7 +111,7 @@ module {
         };
     };
 
-    public let Nat32 = {
+    public let Nat32 : Blobify<Nat32> = {
         to_blob = func(n : Nat32) : Blob{
             Base.Blob.fromArray([
                 Base.Nat8.fromNat(Base.Nat32.toNat(n & 0xff)),
@@ -114,7 +130,7 @@ module {
         };
     };
 
-    public let Nat64 = {
+    public let Nat64 : Blobify<Nat64> = {
         to_blob = func(n : Nat64) : Blob {
             Base.Blob.fromArray([
                 Base.Nat8.fromNat(Base.Nat64.toNat(n & 0xff)),
@@ -141,19 +157,19 @@ module {
         };
     };
 
-    public let Blob = {
+    public let Blob : Blobify<Blob> = {
         to_blob = func(b : Blob) : Blob = b;
         from_blob = func(blob : Blob) : Blob = blob;
     };
 
-    public let Bool = {
+    public let Bool : Blobify<Bool> = {
         to_blob = func(b : Bool) : Blob = Base.Blob.fromArray([if (b) 1 else 0]);
         from_blob = func(blob : Blob) : Bool {
             blob == Base.Blob.fromArray([1]);
         };
     };
 
-    public let Text = {
+    public let Text : Blobify<Text> = {
         to_blob = func(t : Text) : Blob = TextModule.encodeUtf8(t);
         from_blob = func(blob : Blob) : Text {
             let ?text = TextModule.decodeUtf8(blob) else Debug.trap("from_blob() on Blobify.Text failed to decodeUtf8");
@@ -161,11 +177,10 @@ module {
         };
     };
 
-    public let Principal = {
+    public let Principal : Blobify<Principal> = {
         to_blob = func(p : Principal) : Blob { Base.Principal.toBlob(p) };
         from_blob = func(blob : Blob) : Principal { Base.Principal.fromBlob(blob) };
     };
-
 
     public let t_blob = Text;
     public let b_blob = Blob;

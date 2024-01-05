@@ -42,7 +42,7 @@ jobs:
       - name: Install mops & mocv
         run: |
             npm -g i mocv
-            npm --yes -g i ic-mops@0.34.0
+            npm --yes -g i ic-mops
             mops i
 
       # mops test uses this path internally

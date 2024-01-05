@@ -1,15 +1,62 @@
 import Blob "mo:base/Blob";
+import Buffer "mo:base/Buffer";
 import Array "mo:base/Array";
 import Nat8 "mo:base/Nat8";
 import Prelude "mo:base/Prelude";
 import Iter "mo:base/Iter";
 import Result "mo:base/Result";
 
+import Fuzz "mo:fuzz";
+
 module {
 
+    type Buffer<A> = Buffer.Buffer<A>;
     type Iter<A> = Iter.Iter<A>;
     type Result<A, B> = Result.Result<A, B>;
-    
+    type Fuzzer = Fuzz.Fuzzer;    
+
+    // public func blob_pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Blob {
+    //     let address = index * 12;
+    //     MemoryRegion.loadBlob(self.pointers, address, 12);
+    // };
+
+    // public func address_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Nat {
+    //     let pointer_address = Nat64.fromNat(index * 12);
+    //     let address = Region.loadNat64(self.pointers.region, pointer_address);
+    //     Nat64.toNat(address);
+    // };
+
+    // public func size_at_index<A>(self : MemoryBuffer<A>, index : Nat) : Nat {
+    //     let pointer_address = Nat64.fromNat(index * 12);
+    //     let value_size = Region.loadNat32(self.pointers.region, pointer_address + 8);
+
+    //     Nat32.toNat(value_size);
+    // };
+
+    // public func update_pointer_at_index<A>(self : MemoryBuffer<A>, index : Nat, address : Nat, size : Nat) {
+    //     if (index == 398) Debug.print("prev (i, address, size): " # debug_show (index, address, size));
+
+    //     let pointer_address = Nat64.fromNat(index * 12);
+
+    //     let value_address = Nat64.fromNat(address);
+    //     let value_size = Nat32.fromNat(size);
+
+    //     Region.storeNat64(self.pointers.region, pointer_address, value_address);
+    //     Region.storeNat32(self.pointers.region, pointer_address + 8, value_size);
+
+    //     if (index == 398) Debug.print("new (i, address, size): " # debug_show (index, value_address, value_size));
+    // };
+
+
+    public func shuffle_buffer<A>(fuzz : Fuzz.Fuzzer, buffer : Buffer.Buffer<A>) {
+        for (i in Iter.range(0, buffer.size() - 3)) {
+            let j = fuzz.nat.randomRange(i + 1, buffer.size() - 1);
+            let tmp = buffer.get(i);
+            buffer.put(i, buffer.get(j));
+            buffer.put(j, tmp);
+        };
+    };
+
     public func send_error<OldOk, NewOk, Error>(res: Result<OldOk, Error>): Result<NewOk, Error>{
         switch (res) {
             case (#ok(_)) Prelude.unreachable();
@@ -59,5 +106,6 @@ module {
 
         return n;
     };
+
 
 };

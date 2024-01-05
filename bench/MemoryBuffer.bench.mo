@@ -8,10 +8,22 @@ import Prelude "mo:base/Prelude";
 import { MemoryRegion } "mo:memory-region";
 
 import Bench "mo:bench";
+import Fuzz "mo:fuzz";
 
 import { MemoryBuffer; Blobify } "../src";
-
+import Utils "../src/Utils";
 module {
+
+    let candid_blobify : Blobify.Blobify<Nat> = {
+        from_blob = func(b: Blob) : Nat {
+            let ?n: ?Nat = from_candid(b) else {
+                Debug.trap("Failed to decode Nat from blob");
+            };
+            n;
+        };
+        to_blob = func(n: Nat) : Blob = to_candid(n);
+    };
+
     public func init() : Bench.Bench {
         let bench = Bench.Bench();
 
@@ -28,21 +40,32 @@ module {
             "get()",
             "put() (new == prev)",
             "put() (new > prev)",
+            "put() (new < prev)",
             "remove()",
             "insert()",
-            "removeLast()"
+            "removeLast()",
         ]);
 
-        let buffer = Buffer.Buffer<Nat>(8);
-        let memory_buffer = MemoryBuffer.new<Nat>();
-
         let limit = 10_000;
+
+        let fuzz = Fuzz.fromSeed(0x7f7f);
+
+        let buffer = Buffer.Buffer<Nat>(limit);
+        let memory_buffer = MemoryBuffer.new<Nat>();
+        let order = Buffer.Buffer<Nat>(limit);
+
+        for (i in Iter.range(0, limit - 1)) {
+            order.add(i);
+        };
+
+        fuzz.buffer.shuffle(order);
+
         bench.runner(
             func(row, col) = switch (col, row) {
 
                 case ("Buffer", "add()") {
                     for (i in Iter.range(0, limit - 1)) {
-                        buffer.add(i);
+                        buffer.add(i * 10);
                     };
                 };
                 case ("Buffer", "get()") {
@@ -56,18 +79,23 @@ module {
                     };
                 };
                 case ("Buffer", "put() (new > prev)") {
-                    for (i in Iter.range(0, limit - 1)) {
-                        buffer.put(i, i * 10);
+                    for (i in order.vals()) {
+                        buffer.put(i, i * 100);
+                    };
+                };
+                case ("Buffer", "put() (new < prev)") {
+                    for (i in order.vals()) {
+                        buffer.put(i, i);
                     };
                 };
                 case ("Buffer", "remove()") {
-                    for (_ in Iter.range(0, limit - 1)) {
-                        ignore buffer.remove(0);
+                    for (i in order.vals()) {
+                        ignore buffer.remove(Nat.min(i, buffer.size() - 1));
                     };
                 };
                 case ("Buffer", "insert()") {
-                    for (i in Iter.range(0, limit - 1)) {
-                        buffer.insert(0, i);
+                    for (i in order.vals()) {
+                        buffer.insert(Nat.min(i, buffer.size()), i);
                     };
                 };
                 case ("Buffer", "removeLast()") {
@@ -75,39 +103,45 @@ module {
                         ignore buffer.removeLast();
                     };
                 };
+
                 case ("MemoryBuffer", "add()") {
                     for (i in Iter.range(0, limit - 1)) {
-                        MemoryBuffer.add(memory_buffer, Blobify.Nat, i);
+                        MemoryBuffer.add(memory_buffer, candid_blobify, i * 10);
                     };
                 };
                 case ("MemoryBuffer", "get()") {
                     for (i in Iter.range(0, limit - 1)) {
-                        ignore MemoryBuffer.get(memory_buffer, Blobify.Nat, i);
+                        ignore MemoryBuffer.get(memory_buffer, candid_blobify, i);
                     };
                 };
                 case ("MemoryBuffer", "put() (new == prev)") {
-                    for (i in Iter.range(0, limit - 1)) {
-                        MemoryBuffer.put(memory_buffer, Blobify.Nat, i, i);
+                    for (i in order.vals()) {
+                        MemoryBuffer.put(memory_buffer, candid_blobify, i, i * 10);
                     };
                 };
                 case ("MemoryBuffer", "put() (new > prev)") {
-                    for (i in Iter.range(0, limit - 1)) {
-                        MemoryBuffer.put(memory_buffer, Blobify.Nat, i, i * 10);
+                    for (i in order.vals()) {
+                        MemoryBuffer.put(memory_buffer, candid_blobify, i, i * 100);
+                    };
+                };
+                case ("MemoryBuffer", "put() (new < prev)") {
+                    for (i in order.vals()) {
+                        MemoryBuffer.put(memory_buffer, candid_blobify, i, i);
                     };
                 };
                 case ("MemoryBuffer", "remove()") {
-                    for (_ in Iter.range(0, limit - 1)) {
-                        ignore MemoryBuffer.remove(memory_buffer, Blobify.Nat, 0);
+                    for (i in order.vals()) {
+                        ignore MemoryBuffer.remove(memory_buffer, candid_blobify, 0);
                     };
                 };
                 case ("MemoryBuffer", "insert()") {
-                    for (i in Iter.range(0, limit - 1)) {
-                        MemoryBuffer.insert(memory_buffer, Blobify.Nat, 0, i * 10);
+                    for (i in order.vals()) {
+                        MemoryBuffer.insert(memory_buffer, candid_blobify, 0, i * 100);
                     };
                 };
                 case ("MemoryBuffer", "removeLast()") {
                     for (_ in Iter.range(0, limit - 1)) {
-                        ignore MemoryBuffer.removeLast(memory_buffer, Blobify.Nat);
+                        ignore MemoryBuffer.removeLast(memory_buffer, candid_blobify);
                     };
                 };
                 case (_) {

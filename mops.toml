@@ -7,8 +7,10 @@ keywords = [ "region", "buffer", "persistent", "collections", "encoding" ]
 
 [dependencies]
 base = "0.10.2"
-memory-region = "0.1.0"
+memory-region = "0.1.1"
 
 [dev-dependencies]
-test = "1.0.1"
+test = "1.2.0"
 bench = "1.0.0"
+fuzz = "0.2.0"
+augmented-btrees = "../augmented-btrees"

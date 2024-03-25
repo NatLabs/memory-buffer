@@ -15,7 +15,6 @@
 /// - Text
 /// - Principal
 
-import Prelude "mo:base/Prelude";
 import TextModule "mo:base/Text";
 import BlobModule "mo:base/Blob";
 import ArrayModule "mo:base/Array";
@@ -27,7 +26,6 @@ import Nat64Module "mo:base/Nat64";
 import PrincipalModule "mo:base/Principal";
 
 import Debug "mo:base/Debug";
-import Array "mo:base/Array";
 
 module {
 
@@ -64,7 +62,7 @@ module {
 
             let arr = ArrayModule.tabulate(
                 nbytes,
-                func(i : Nat) : Nat8 {
+                func(_ : Nat) : Nat8 {
                     let tmp = num % 255;
                     num /= 255;
                     Nat8Module.fromNat(tmp);
@@ -75,7 +73,6 @@ module {
         };
         from_blob = func(blob : Blob) : Nat {
             var n = 0;
-            var i = 0;
             let bytes = Base.Blob.toArray(blob);
 
             var j = bytes.size();
@@ -107,7 +104,7 @@ module {
         from_blob = func(blob : Blob) : Nat16 {
             let bytes = Base.Blob.toArray(blob);
 
-            let n16 = Base.Nat16.fromNat8(bytes[1] << 8) 
+            let _n16 = Base.Nat16.fromNat8(bytes[1] << 8) 
                 | Base.Nat16.fromNat8(bytes[0]);
         };
     };
@@ -124,7 +121,7 @@ module {
         from_blob = func(blob : Blob) : Nat32 {
             let bytes = Base.Blob.toArray(blob);
 
-            let n32 = Base.Nat32.fromNat(Base.Nat8.toNat(bytes[3] << 24))
+            let _n32 = Base.Nat32.fromNat(Base.Nat8.toNat(bytes[3] << 24))
                 | Base.Nat32.fromNat(Base.Nat8.toNat(bytes[2] << 16))
                 | Base.Nat32.fromNat(Base.Nat8.toNat(bytes[1] << 8))
                 | Base.Nat32.fromNat(Base.Nat8.toNat(bytes[0]));
@@ -147,7 +144,7 @@ module {
         from_blob = func(blob : Blob) : Nat64 {
             let bytes = Base.Blob.toArray(blob);
 
-            let n64 = Base.Nat64.fromNat(Base.Nat8.toNat(bytes[7] << 56))
+            let _n64 = Base.Nat64.fromNat(Base.Nat8.toNat(bytes[7] << 56))
                 | Base.Nat64.fromNat(Base.Nat8.toNat(bytes[6] << 48))
                 | Base.Nat64.fromNat(Base.Nat8.toNat(bytes[5] << 40))
                 | Base.Nat64.fromNat(Base.Nat8.toNat(bytes[4] << 32))
@@ -182,13 +179,4 @@ module {
         to_blob = func(p : Principal) : Blob { Base.Principal.toBlob(p) };
         from_blob = func(blob : Blob) : Principal { Base.Principal.fromBlob(blob) };
     };
-
-    public let t_blob = Text;
-    public let b_blob = Blob;
-    public let n_blob = Nat;
-    public let n8_blob = Nat8;
-    public let n16_blob = Nat16;
-    public let n32_blob = Nat32;
-    public let n64_blob = Nat64;
-    public let p_blob = Principal;
 };

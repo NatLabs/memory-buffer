@@ -1,5 +1,5 @@
 ## MemoryBuffer
-A persistent buffer implementation in motoko which makes use of the [memory-region](https://github.com/NatLabs/memory-region) library for re-allocating stable memory. The **MemoryBuffer** addresses the limitatons of heap storage by storing its elements in stable memory, which has the capacity to store significantly more data, up to 64 GiB.
+A persistent buffer implementation in motoko which makes use of the [memory-region](https://github.com/NatLabs/memory-region) library for re-allocating stable memory. The **MemoryBuffer** addresses the limitatons of heap storage by storing its elements in stable memory, which has the capacity to store significantly more data, up to 400 GiB.
 
 > Note that this library is still in development and hasn't been tested for production use. If you find any bugs or have any suggestions, please open an issue [here](https://github.com/NatLabs/memory-buffer/issues).
 
@@ -31,66 +31,104 @@ The buffer is built using two [Region](https://internetcomputer.org/docs/current
 #### Import modules
 
 ```motoko
-  import { MemoryBuffer; Blobify } "mo:memory-buffer";
+  import { MemoryBufferClass; Blobify; VersionedMemoryBuffer; MemoryBuffer; } "mo:memory-buffer";
 ```
+- **Blobify**: A module that provides functions for serializing and deserializing elements.
+- **MemoryBuffer**: The base module for the buffer.
+- **VersionedMemoryBuffer**: A module over the `MemoryBuffer` that stores the version and makes it easy to upgrade to a new version.
+- **MemoryBufferClass**: A module over the `VersionedMemoryBuffer` that provides a class-like interface.
+
+The `MemoryBufferClass` is recommended for general use.
+
 #### Usage Examples
 ```motoko
-  stable let mem_buffer = MemoryBuffer.new<Nat>();
+  stable var mem_store = MemoryBufferClass.newStableStore<Nat>();
 
-  MemoryBuffer.add(mem_buffer, Blobify.Nat, 1);
-  MemoryBuffer.add(mem_buffer, Blobify.Nat, 3);
-  MemoryBuffer.insert(mem_buffer, Blobify.Nat, 1, 2);
-  assert MemoryBuffer.toArray(mem_buffer, Blobify.Nat) == [1, 2, 3];
+  let buffer = MemoryBufferClass.MemoryBufferClass<Nat>(mem_store, Blobify.Nat);
+  buffer.add(1);
+  buffer.add(3);
+  buffer.insert(1, 2);
+  assert buffer.toArray() == [1, 2, 3];
 
-  for (i in Iter.range(0, MemoryBuffer.size(mem_buffer) - 1)) {
-    let n = MemoryBuffer.get(mem_buffer, Blobify.Nat, i);
-    MemoryBuffer.put(mem_buffer, Blobify.Nat, i, n ** 2);
+  for (i in Iter.range(0, buffer.size(mem_buffer) - 1)) {
+    let n = buffer.get(i);
+    buffer.put(i, n ** 2);
   };
 
-  assert MemoryBuffer.toArray(mem_buffer, Blobify.Nat) == [1, 4, 9];
-  assert MemoryBuffer.remove(mem_buffer, Blobify.Nat, 1) == ?4;
-  assert MemoryBuffer.removeLast(mem_buffer, Blobify.Nat) == ?9;
+  assert buffer.toArray() == [1, 4, 9];
+  assert buffer.remove(1) == ?4;
+  assert buffer.removeLast() == ?9;
+```
+
+#### Upgrading to a new version
+The MemoryRegion that stores deallocated memory for future use is under development and may have breaking changes in the future. 
+To account for this, the `MemoryBuffer` has a versioning system that allows you to upgrade without losing your data.
+
+Steps to upgrade:
+- Install new version via mops: `mops add memory-buffer@<version>`
+- Call `upgrade()` on the buffer's memory store to upgrade to the new version.
+- Replace the old memory store with the upgraded one.
+
+```motoko
+  stable var mem_store = MemoryBufferClass.newStableStore<Nat>();
+  mem_store := MemoryBufferClass.upgrade(mem_store);
 ```
 
 ## Benchmarks
 ### Buffer vs MemoryBuffer
-Benchmarking the performance with 10k entries
+Benchmarking the performance with 10k `Nat` entries
 
-- **add()** - adding elements to the end of the buffer
-- **get()** - retrieving elements from the buffer
 - **put()** (new == prev) - updating elements in the buffer where number of bytes of the new element is equal to the number of bytes of the previous element
 - **put() (new > prev)** - updating elements in the buffer where number of bytes of the new element is greater than the number of bytes of the previous element
-- **remove()** - removing the first element in the buffer till the buffer is empty resulting in the worst case scenario
-- **insert()** - inserting elements at the beginning of the buffer till the buffer has 10k elements resulting in the worst case scenario
-- **removeLast()** - removing the last element in the buffer till the buffer is empty
+- **sortUnstable()** - quicksort on the buffer - an unstable sort algorithm
+- **blobSortUnstable()** - sorting without serializing the elements. Requires that the elements can be ordered in their serialized form.
 
 #### Instructions
 
-| Methods             |         Buffer |  MemoryBuffer |
-| :------------------ | -------------: | ------------: |
-| add()               |      7_506_635 |    37_471_730 |
-| get()               |      2_442_253 |    22_743_302 |
-| put() (new == prev) |      2_803_133 |    26_629_193 |
-| put() (new > prev)  |      3_143_921 |    89_478_142 |
-| remove()            | 10_855_068_046 | 1_438_465_552 |
-| insert()            |  9_555_436_925 | 1_374_513_438 |
-| removeLast()        |      5_543_704 |   377_115_486 |
-
+| Methods             |        Buffer | MemoryBuffer (with Blobify) | MemoryBuffer (encode to candid) |
+| :-----------------  | ------------: | --------------------------: | ------------------------------: |
+| add()               |     4_631_833 |                  55_658_661 |                      44_562_899 |
+| get()               |     2_502_548 |                  31_701_506 |                      26_405_254 |
+| put() (new == prev) |     3_893_438 |                  40_179_267 |                      29_082_693 |
+| put() (new > prev)  |     4_557_396 |                 488_531_847 |                     213_209_278 |
+| put() (new < prev)  |     4_235_067 |                 160_451_767 |                     157_396_508 |
+| add() reallocation  |     8_868_304 |                 290_079_559 |                     159_519_128 |
+| removeLast()        |     4_687_991 |                 130_619_001 |                     123_008_684 |
+| reverse()           |     3_120_905 |                  10_433_404 |                      10_428_189 |
+| remove()            | 3_692_128_841 |                 542_861_160 |                     537_722_525 |
+| insert()            | 3_283_583_528 |                 769_441_766 |                     495_334_102 |
+| sortUnstable()      |   101_307_554 |               7_918_240_085 |                   6_744_921_414 |
+| blobSortUnstable()  |         6_850 |                 903_626_714 |                   1_083_497_533 |
 
 #### Heap
-| Methods             |  Buffer | MemoryBuffer |
-| :------------------ | ------: | -----------: |
-| add()               | 154_740 |      687_984 |
-| get()               |   9_008 |      762_888 |
-| put() (new == prev) |   9_008 |      687_936 |
-| put() (new > prev)  |   9_008 |    1_711_632 |
-| remove()            |  57_716 |    3_441_436 |
-| insert()            | 154_896 |    2_305_752 |
-| removeLast()        |  57_700 |    6_300_332 |
+
+| Methods             |    Buffer | MemoryBuffer (with Blobify) | MemoryBuffer (encode to candid) |
+| :------------------ | --------: | --------------------------: | ------------------------------: |
+| add()               |     9_008 |                     752_584 |                         610_008 |
+| get()               |     9_008 |                   1_144_752 |                         369_040 |
+| put() (new == prev) |     9_008 |                     752_572 |                         609_980 |
+| put() (new > prev)  |     9_012 |                  14_117_144 |                       3_267_348 |
+| put() (new < prev)  |     9_012 |                   2_161_364 |                       2_093_712 |
+| add() reallocation  |   158_984 |                   5_701_172 |                       3_002_856 |
+| removeLast()        |     8_960 |                   2_135_000 |                       1_340_248 |
+| reverse()           |     8_952 |                     249_008 |                         249_008 |
+| remove()            |    57_720 |                   3_169_784 |                       2_437_324 |
+| insert()            |   154_900 |                  16_765_672 |                       5_884_108 |
+| sortUnstable()      | 2_523_784 |                  29_739_268 |                      19_556_996 |
+| blobSortUnstable()  |     8_992 |                  18_777_960 |                      25_562_276 |
 
 
+#### Allocated Stable Memory Bytes
+
+|                  | MemoryBuffer (with Blobify)                                                                                                                           | MemoryBuffer (encode to candid)                                                                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| add()            | bytes:                         35_720<br>metadataBytes:       120_064<br>capacity:                    65_536<br>metadataCapacity:  131_072            | bytes:                         108_475<br>metadataBytes:        120_064<br>capacity:                    131_072<br>metadataCapacity:   131_072         |
+| put () new > old | bytes:                         48_143<br>metadataBytes:       120_064<br>capacity:                    65_536<br>metadataCapacity:  131_072            | bytes:                         126_007<br>metadataBytes:        120_064<br>capacity:                   196_608<br>metadataCapacity:   131_072          |
+| put () new < old | bytes:                         19_809<br>metadataBytes:       120_064<br>capacity:                    65_536<br>metadataCapacity:  131_072            | bytes:                          89_936<br>metadataBytes:        120_064<br>capacity:                   196_608<br>metadataCapacity:   131_072          |
+| remove()         | bytes:                                  64<br>metadataBytes:                 64<br>capacity:                    65_536<br>metadataCapacity:   131_072 | bytes:                                  64<br>metadataBytes:                  64<br>capacity:                   196_608<br>metadataCapacity:   131_072 |
 > Generate benchmarks by running `mops bench` in the project directory.
 
-## Future Work
-- Improve perfomance. 
-  - Reduce the number of instructions and heap allocations required for each operation.
+Encoding to Candid is more efficient than using a custom encoding function.
+However, a custom encoding can be implemented to use less stable memory because it's more flexible and is not required to store the type information with the serialized data.
+
+

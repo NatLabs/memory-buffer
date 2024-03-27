@@ -9,6 +9,7 @@ keywords = [ "region", "buffer", "persistent", "collections", "encoding" ]
 base = "0.11.1"
 itertools = "0.2.1"
 memory-region = "1.1.0"
+lru-cache = "0.0.1"
 
 [dev-dependencies]
 test = "1.2.0"

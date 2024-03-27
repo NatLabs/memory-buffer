@@ -14,10 +14,10 @@ import Itertools "mo:itertools/Iter";
 import RevIter "mo:itertools/RevIter";
 import MaxBpTreeMethods "mo:augmented-btrees/MaxBpTree/Methods";
 
-import { MemoryBuffer } "../src";
-import Blobify "../src/Blobify";
+import { MemoryBuffer } "../../src";
+import Blobify "../../src/Blobify";
 
-import Utils "../src/Utils";
+import Utils "../../src/Utils";
 
 let candid_blobify : Blobify.Blobify<Nat> = {
     from_blob = func(b : Blob) : Nat {

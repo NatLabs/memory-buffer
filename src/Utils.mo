@@ -4,6 +4,7 @@ import Array "mo:base/Array";
 import Nat8 "mo:base/Nat8";
 import Prelude "mo:base/Prelude";
 import Iter "mo:base/Iter";
+import Debug "mo:base/Debug";
 import Result "mo:base/Result";
 
 import Fuzz "mo:fuzz";
@@ -47,6 +48,12 @@ module {
     //     if (index == 398) Debug.print("new (i, address, size): " # debug_show (index, value_address, value_size));
     // };
 
+    public func unwrap<T>(optional: ?T, trap_msg: Text) : T {
+        switch(optional) {
+            case (?v) return v;
+            case (_) return Debug.trap(trap_msg);
+        };
+    };
 
     public func shuffle_buffer<A>(fuzz : Fuzz.Fuzzer, buffer : Buffer.Buffer<A>) {
         for (i in Iter.range(0, buffer.size() - 3)) {

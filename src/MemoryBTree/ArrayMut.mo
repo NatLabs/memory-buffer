@@ -139,7 +139,7 @@ module {
         return ?i;
     };
 
-    // public func binary_search<B, A>(arr : [var ?A], cmp : T.MultiCmpFn<B, A>, search_key : B, arr_len : Nat) : Int {
+    // public func binary_search_blob_seq<B, A>(arr : [var ?A], cmp : T.MultiCmpFn<B, A>, search_key : B, arr_len : Nat) : Int {
     //     if (arr_len == 0) return -1; // should insert at index Int.abs(i + 1)
     //     var l = 0;
 
@@ -149,7 +149,7 @@ module {
     //     while (l < r) {
     //         let mid = (l + r) / 2;
 
-    //         let ?val = arr[mid] else Debug.trap("1. binary_search: accessed a null value");
+    //         let ?val = arr[mid] else Debug.trap("1. binary_search_blob_seq: accessed a null value");
 
     //         let result = cmp(search_key, val);
     //         if (result == -1) {
@@ -193,7 +193,7 @@ module {
     //                     },
     //                 )
     //             );
-    //             Debug.trap("2. binary_search: accessed a null value");
+    //             Debug.trap("2. binary_search_blob_seq: accessed a null value");
     //         };
     //     };
     // };

@@ -10,6 +10,7 @@ base = "0.11.1"
 itertools = "0.2.1"
 memory-region = "1.1.0"
 lru-cache = "0.0.1"
+MotokoStableBTree = "https://github.com/sardariuss/MotokoStableBTree#master@b590ede4489c2d4b2189299c3a2cc35dc4faa3fc"
 
 [dev-dependencies]
 test = "1.2.0"

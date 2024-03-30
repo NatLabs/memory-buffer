@@ -26,6 +26,7 @@ module {
         nats : [var Nat], // [address, index, count]
         adjacent_nodes : [var ?Nat], // [parent, prev, next] (is_root if parent is null)
         kv_mem_blocks : [var ?MemoryBlock],
+        [var ?Nat] // for compatibility with branch, otherwise not used
     );
 
     public type Branch = (

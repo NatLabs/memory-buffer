@@ -51,6 +51,7 @@ module {
             "reverse()",
             "remove()",
             "insert()",
+            "sortUnstable()",
             "blobSortUnstable()",
         ]);
 

@@ -56,6 +56,8 @@ module {
         order : Nat;
         var count : Nat;
         var root : Nat;
+        var branch_count : Nat; // number of branch nodes
+        var leaf_count : Nat; // number of leaf nodes
 
         metadata : MemoryRegion;
         blobs : MemoryRegion;

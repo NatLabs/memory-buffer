@@ -4,9 +4,9 @@ import Nat "mo:base/Nat";
 
 import RevIter "mo:itertools/RevIter";
 
-import Blobify "Blobify";
-import MemoryBuffer "MemoryBuffer";
-import VersionedMemoryBuffer "VersionedMemoryBuffer";
+import Blobify "../Blobify";
+import MemoryBuffer "Base";
+import VersionedMemoryBuffer "Versioned";
 import Migrations "Migrations";
 
 module {

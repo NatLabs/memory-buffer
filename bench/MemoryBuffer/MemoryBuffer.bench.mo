@@ -11,12 +11,12 @@ import { MemoryRegion } "mo:memory-region";
 import Bench "mo:bench";
 import Fuzz "mo:fuzz";
 
-import Blobify "../src/Blobify";
-import MemoryBuffer "../src/MemoryBuffer";
-import VersionedMemoryBuffer "../src/VersionedMemoryBuffer";
-import MemoryBufferClass "../src/MemoryBufferClass";
+import Blobify "../../src/Blobify";
+import MemoryBuffer "../../src/MemoryBuffer/Base";
+import VersionedMemoryBuffer "../../src/MemoryBuffer/Versioned";
+import MemoryBufferClass "../../src/MemoryBuffer/Class";
 
-import Utils "../src/Utils";
+import Utils "../../src/Utils";
 module {
 
     let candid_blobify : Blobify.Blobify<Nat> = {

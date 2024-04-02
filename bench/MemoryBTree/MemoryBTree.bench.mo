@@ -64,7 +64,7 @@ module {
             // "remove()",
         ]);
 
-        let limit = 40_000;
+        let limit = 10_000;
 
         let { n64conv; tconv } = MotokoStableBTree;
 

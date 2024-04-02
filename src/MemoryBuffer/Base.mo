@@ -16,7 +16,7 @@ import MemoryRegion "mo:memory-region/MemoryRegion";
 import RevIter "mo:itertools/RevIter";
 import Itertools "mo:itertools/Iter";
 
-import Blobify "Blobify";
+import Blobify "../Blobify";
 import Migrations "Migrations";
 
 module MemoryBuffer {

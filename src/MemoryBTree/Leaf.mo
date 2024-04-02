@@ -124,57 +124,7 @@ module Leaf {
         get_keys_offset(leaf_address, btree.order) + (i * VALUE_MEMORY_BLOCK_SIZE);
     };
 
-    public func new(btree : MemoryBTree) : Leaf {
-        let bytes_per_node = Leaf.get_memory_size(btree);
-
-        let leaf_address = MemoryRegion.allocate(btree.metadata, bytes_per_node);
-
-        MemoryRegion.storeBlob(btree.metadata, leaf_address, Leaf.MAGIC);
-        MemoryRegion.storeNat8(btree.metadata, leaf_address + Leaf.LAYOUT_VERSION_START, Leaf.LAYOUT_VERSION); // layout version
-        MemoryRegion.storeNat8(btree.metadata, leaf_address + Leaf.NODE_TYPE_START, Leaf.NODE_TYPE); // node type
-
-        MemoryRegion.storeNat16(btree.metadata, leaf_address + Leaf.INDEX_START, 0); // node's position in parent node
-        MemoryRegion.storeNat16(btree.metadata, leaf_address + Leaf.COUNT_START, 0); // number of elements in the node
-
-        // adjacent nodes
-        MemoryRegion.storeNat64(btree.metadata, leaf_address + Leaf.PARENT_START, NULL_ADDRESS);
-        MemoryRegion.storeNat64(btree.metadata, leaf_address + Leaf.PREV_START, NULL_ADDRESS);
-        MemoryRegion.storeNat64(btree.metadata, leaf_address + Leaf.NEXT_START, NULL_ADDRESS);
-
-        var i = 0;
-
-        // keys
-        while (i < btree.order) {
-            let key_offset = get_keys_offset(leaf_address, i);
-            MemoryRegion.storeNat64(btree.metadata, key_offset, NULL_ADDRESS);
-            MemoryRegion.storeNat16(btree.metadata, key_offset + Leaf.ADDRESS_SIZE, 0);
-
-            i += 1;
-        };
-
-        // vals 
-        i := 0;
-        while (i < btree.order) {
-            let val_offset = get_vals_offset(btree, leaf_address, i);
-            MemoryRegion.storeNat64(btree.metadata, val_offset, NULL_ADDRESS);
-            MemoryRegion.storeNat32(btree.metadata, val_offset + Leaf.ADDRESS_SIZE, 0);
-
-            i += 1;
-        };
-
-        let leaf : Leaf = (
-            [var leaf_address, 0, 0],
-            [var null, null, null],
-            Array.init(btree.order, null),
-            Array.init(btree.order, null),
-        );
-
-        LruCache.put(btree.nodes_cache, nhash, leaf.0 [AC.ADDRESS], #leaf(leaf));
-
-        leaf;
-    };
-
-    public func partial_new(btree : MemoryBTree) : Nat {
+    public func new(btree : MemoryBTree) : Nat {
         let bytes_per_node = Leaf.get_memory_size(btree);
 
         let leaf_address = MemoryRegion.allocate(btree.metadata, bytes_per_node);
@@ -339,7 +289,6 @@ module Leaf {
 
         MemoryRegion.loadNat16(btree.metadata, address + COUNT_START) |> Nat16.toNat(_);
     };
-
 
     public func get_key(btree: MemoryBTree, address: Nat, i: Nat): ?(MemoryBlock, Blob) {
         switch(LruCache.peek(btree.nodes_cache, nhash, address)){
@@ -543,47 +492,7 @@ module Leaf {
         };
     };
 
-    public func update_count(btree : MemoryBTree, leaf : Leaf, new_count : Nat) {
-        MemoryRegion.storeNat16(btree.metadata, leaf.0 [AC.ADDRESS] + COUNT_START, Nat16.fromNat(new_count));
-        leaf.0 [AC.COUNT] := new_count;
-    };
-
-    public func update_index(btree : MemoryBTree, leaf : Leaf, new_index : Nat) {
-        MemoryRegion.storeNat16(btree.metadata, leaf.0 [AC.ADDRESS] + INDEX_START, Nat16.fromNat(new_index));
-        leaf.0 [AC.INDEX] := new_index;
-    };
-
-    public func update_parent(btree : MemoryBTree, leaf : Leaf, opt_parent : ?Nat) {
-        let parent = switch (opt_parent) {
-            case (null) NULL_ADDRESS;
-            case (?_parent) Nat64.fromNat(_parent);
-        };
-
-        leaf.1 [AC.PARENT] := opt_parent;
-        MemoryRegion.storeNat64(btree.metadata, leaf.0 [AC.ADDRESS] + PARENT_START, parent);
-    };
-
-    public func update_next(btree : MemoryBTree, leaf : Leaf, opt_next : ?Nat) {
-        let next = switch(opt_next) {
-            case (null) NULL_ADDRESS;
-            case (?_next) Nat64.fromNat(_next);
-        };
-
-        leaf.1 [AC.NEXT] := opt_next;
-        MemoryRegion.storeNat64(btree.metadata, leaf.0 [AC.ADDRESS] + NEXT_START, next);
-    };
-
-    public func update_prev(btree : MemoryBTree, leaf : Leaf, opt_prev : ?Nat) {
-        let prev = switch (opt_prev) {
-            case (null) NULL_ADDRESS;
-            case (?_prev) Nat64.fromNat(_prev);
-        };
-
-        leaf.1 [AC.PREV] := opt_prev;
-        MemoryRegion.storeNat64(btree.metadata, leaf.0 [AC.ADDRESS] + PREV_START, prev);
-    };
-
-    public func partial_update_count(btree: MemoryBTree, address: Nat, new_count: Nat){
+    public func update_count(btree: MemoryBTree, address: Nat, new_count: Nat){
         switch(LruCache.peek(btree.nodes_cache, nhash, address)){
             case (? #leaf(leaf)) leaf.0 [AC.COUNT] := new_count;
             case (? #branch(_)) Debug.trap("Leaf.get_keys: returned branch instead of leaf");
@@ -593,7 +502,7 @@ module Leaf {
         MemoryRegion.storeNat16(btree.metadata, address + COUNT_START, Nat16.fromNat(new_count));
     };
 
-    public func partial_update_index(btree: MemoryBTree, address: Nat, new_index: Nat){
+    public func update_index(btree: MemoryBTree, address: Nat, new_index: Nat){
         switch(LruCache.peek(btree.nodes_cache, nhash, address)){
             case (? #leaf(leaf)) leaf.0 [AC.INDEX] := new_index;
             case (? #branch(_)) Debug.trap("Leaf.get_keys: returned branch instead of leaf");
@@ -603,7 +512,7 @@ module Leaf {
         MemoryRegion.storeNat16(btree.metadata, address + INDEX_START, Nat16.fromNat(new_index));
     };
 
-    public func partial_update_parent(btree: MemoryBTree, address: Nat, opt_parent: ?Nat){
+    public func update_parent(btree: MemoryBTree, address: Nat, opt_parent: ?Nat){
         switch(LruCache.peek(btree.nodes_cache, nhash, address)){
             case (? #leaf(leaf)) leaf.1 [AC.PARENT] := opt_parent;
             case (? #branch(_)) Debug.trap("Leaf.get_keys: returned branch instead of leaf");
@@ -618,7 +527,7 @@ module Leaf {
         MemoryRegion.storeNat64(btree.metadata, address + PARENT_START, parent);
     };
 
-    public func partial_update_next(btree: MemoryBTree, address: Nat, opt_next: ?Nat){
+    public func update_next(btree: MemoryBTree, address: Nat, opt_next: ?Nat){
         switch(LruCache.peek(btree.nodes_cache, nhash, address)){
             case (? #leaf(leaf)) leaf.1 [AC.NEXT] := opt_next;
             case (? #branch(_)) Debug.trap("Leaf.get_keys: returned branch instead of leaf");
@@ -633,7 +542,7 @@ module Leaf {
         MemoryRegion.storeNat64(btree.metadata, address + NEXT_START, next);
     };
 
-    public func partial_update_prev(btree: MemoryBTree, address: Nat, opt_prev: ?Nat){
+    public func update_prev(btree: MemoryBTree, address: Nat, opt_prev: ?Nat){
         switch(LruCache.peek(btree.nodes_cache, nhash, address)){
             case (? #leaf(leaf)) leaf.1 [AC.PREV] := opt_prev;
             case (? #branch(_)) Debug.trap("Leaf.get_keys: returned branch instead of leaf");
@@ -648,7 +557,7 @@ module Leaf {
         MemoryRegion.storeNat64(btree.metadata, address + PREV_START, prev);
     };
 
-    public func partial_insert(btree: MemoryBTree, leaf_address: Nat, index: Nat, key: (MemoryBlock, Blob), val: (MemoryBlock, Blob)){
+    public func insert(btree: MemoryBTree, leaf_address: Nat, index: Nat, key: (MemoryBlock, Blob), val: (MemoryBlock, Blob)){
         let count = Leaf.get_count(btree, leaf_address);
         
         assert index <= count and count < btree.order;
@@ -694,62 +603,10 @@ module Leaf {
         MemoryRegion.storeNat64(btree.metadata, val_start, Nat64.fromNat(val_block.0));
         MemoryRegion.storeNat32(btree.metadata, val_start + ADDRESS_SIZE, Nat32.fromNat(val_block.1));
 
-        Leaf.partial_update_count(btree, leaf_address, count + 1);
+        Leaf.update_count(btree, leaf_address, count + 1);
     };
 
-    public func insert(btree : MemoryBTree, leaf : Leaf, index : Nat, key : (MemoryBlock, Blob), val : (MemoryBlock, Blob)) {
-        assert index <= leaf.0 [AC.COUNT] and leaf.0 [AC.COUNT] < btree.order;
-
-        var i = leaf.0 [AC.COUNT];
-        while (i > index) {
-            leaf.2 [i] := leaf.2 [i - 1];
-            leaf.3 [i] := leaf.3 [i - 1];
-            i -= 1;
-        };
-
-        let key_block = key.0;
-        let key_blob = key.1;
-
-        let val_block = val.0;
-        let val_blob = val.1;
-
-        leaf.2 [index] := ?key;
-        leaf.3 [index] := ?val;
-
-        let key_start = get_keys_offset(leaf.0 [AC.ADDRESS], index);
-        let key_end = get_keys_offset(leaf.0 [AC.ADDRESS], leaf.0 [AC.COUNT]);
-
-        assert (key_end - key_start) / KEY_MEMORY_BLOCK_SIZE == leaf.0 [AC.COUNT] - index;
-
-        MemoryFns.shift(btree.metadata, key_start, key_end, KEY_MEMORY_BLOCK_SIZE);
-        MemoryRegion.storeNat64(btree.metadata, key_start, Nat64.fromNat(key_block.0));
-        MemoryRegion.storeNat16(btree.metadata, key_start + ADDRESS_SIZE, Nat16.fromNat(key_block.1));
-
-        let val_start = get_vals_offset(btree, leaf.0 [AC.ADDRESS], index);
-        let val_end = get_vals_offset(btree, leaf.0 [AC.ADDRESS], leaf.0 [AC.COUNT]);
-
-        assert (val_end - val_start) / VALUE_MEMORY_BLOCK_SIZE == leaf.0 [AC.COUNT] - index;
-
-        MemoryFns.shift(btree.metadata, val_start, val_end, VALUE_MEMORY_BLOCK_SIZE);
-        MemoryRegion.storeNat64(btree.metadata, val_start, Nat64.fromNat(val_block.0));
-        MemoryRegion.storeNat32(btree.metadata, val_start + ADDRESS_SIZE, Nat32.fromNat(val_block.1));
-
-        Leaf.update_count(btree, leaf, leaf.0 [AC.COUNT] + 1);
-    };
-
-    public func put(btree : MemoryBTree, leaf : Leaf, index : Nat, key : (MemoryBlock, Blob), val: (MemoryBlock, Blob)) {
-
-        leaf.2 [index] := ?key;
-        let key_block = key.0;
-
-        let key_offset = get_keys_offset(leaf.0 [AC.ADDRESS], index);
-        MemoryRegion.storeNat64(btree.metadata, key_offset, Nat64.fromNat(key_block.0));
-        MemoryRegion.storeNat16(btree.metadata, key_offset + ADDRESS_SIZE, Nat16.fromNat(key_block.1));
-
-        put_val(btree, leaf, index, val);
-    };
-
-    public func partial_put(btree : MemoryBTree, leaf_address : Nat, index : Nat, key : (MemoryBlock, Blob), val: (MemoryBlock, Blob)) {
+    public func put(btree : MemoryBTree, leaf_address : Nat, index : Nat, key : (MemoryBlock, Blob), val: (MemoryBlock, Blob)) {
         switch(LruCache.peek(btree.nodes_cache, nhash, leaf_address)){
             case (? #leaf(leaf)) {
                 leaf.2 [index] := ?key;
@@ -764,10 +621,10 @@ module Leaf {
         MemoryRegion.storeNat64(btree.metadata, key_offset, Nat64.fromNat(key_block.0));
         MemoryRegion.storeNat16(btree.metadata, key_offset + ADDRESS_SIZE, Nat16.fromNat(key_block.1));
 
-        partial_put_val(btree, leaf_address, index, val);
+        put_val(btree, leaf_address, index, val);
     };
 
-    public func partial_put_val(btree : MemoryBTree, leaf_address : Nat, index : Nat, val : (MemoryBlock, Blob)) {
+    public func put_val(btree : MemoryBTree, leaf_address : Nat, index : Nat, val : (MemoryBlock, Blob)) {
         switch(LruCache.peek(btree.nodes_cache, nhash, leaf_address)){
             case (? #leaf(leaf)) {
                 leaf.3[index] := ?val;
@@ -783,16 +640,7 @@ module Leaf {
         MemoryRegion.storeNat32(btree.metadata, val_offset + ADDRESS_SIZE, Nat32.fromNat(val_block.1));
     };
 
-    public func put_val(btree : MemoryBTree, leaf : Leaf, index : Nat, val: (MemoryBlock, Blob)) {
-        leaf.3 [index] := ?val;
-        let val_block = val.0;
-
-        let val_offset = get_vals_offset(btree, leaf.0 [AC.ADDRESS], index);
-        MemoryRegion.storeNat64(btree.metadata, val_offset, Nat64.fromNat(val_block.0));
-        MemoryRegion.storeNat32(btree.metadata, val_offset + ADDRESS_SIZE, Nat32.fromNat(val_block.1));
-    };
-
-    public func partial_split(btree : MemoryBTree, leaf_address : Nat, elem_index : Nat, key : (MemoryBlock, Blob), val: (MemoryBlock, Blob)) : Nat {
+    public func split(btree : MemoryBTree, leaf_address : Nat, elem_index : Nat, key : (MemoryBlock, Blob), val: (MemoryBlock, Blob)) : Nat {
         let key_block = key.0;
         let val_block = val.0;
 
@@ -804,7 +652,7 @@ module Leaf {
         var i = 0;
         let right_cnt = arr_len + 1 - median : Nat;
 
-        let right_leaf_address = Leaf.partial_new(btree);
+        let right_leaf_address = Leaf.new(btree);
 
         var already_inserted = false;
         var offset = if (is_elem_added_to_right) 0 else 1;
@@ -817,7 +665,7 @@ module Leaf {
             if (j >= median and j == elem_index and not already_inserted) {
                 offset += 1;
                 already_inserted := true;
-                Leaf.partial_put(btree, right_leaf_address, i, key, val);
+                Leaf.put(btree, right_leaf_address, i, key, val);
 
             } else {
                 // decrement left leaf count
@@ -825,107 +673,44 @@ module Leaf {
                 // let ?val = ArrayMut.extract(leaf.3, j) else Debug.trap("Leaf.split: val is null");
                 let ?key = get_key(btree, leaf_address, j) else Debug.trap("Leaf.split: key is null");
                 let ?val = get_val(btree, leaf_address, j) else Debug.trap("Leaf.split: val is null");
-                Leaf.partial_put(btree, right_leaf_address, i, key, val);
+                Leaf.put(btree, right_leaf_address, i, key, val);
                 elems_removed_from_left += 1;
             };
 
             i += 1;
         };
         
-        Leaf.partial_update_count(btree, leaf_address, arr_len - elems_removed_from_left);
+        Leaf.update_count(btree, leaf_address, arr_len - elems_removed_from_left);
 
         if (not is_elem_added_to_right) {
-            Leaf.partial_insert(btree, leaf_address, elem_index, key, val);
+            Leaf.insert(btree, leaf_address, elem_index, key, val);
         };
 
-        Leaf.partial_update_count(btree, leaf_address, median);
-        Leaf.partial_update_count(btree, right_leaf_address, right_cnt);
+        Leaf.update_count(btree, leaf_address, median);
+        Leaf.update_count(btree, right_leaf_address, right_cnt);
 
         let left_index = Leaf.get_index(btree, leaf_address);
-        Leaf.partial_update_index(btree, right_leaf_address, left_index + 1);
+        Leaf.update_index(btree, right_leaf_address, left_index + 1);
 
         let left_parent = Leaf.get_parent(btree, leaf_address);
-        Leaf.partial_update_parent(btree, right_leaf_address, left_parent);
+        Leaf.update_parent(btree, right_leaf_address, left_parent);
 
         // update leaf pointers
-        Leaf.partial_update_prev(btree, right_leaf_address, ?leaf_address);
+        Leaf.update_prev(btree, right_leaf_address, ?leaf_address);
 
         let lefts_next_node = Leaf.get_next(btree, leaf_address);
-        Leaf.partial_update_next(btree, right_leaf_address, lefts_next_node);
-        Leaf.partial_update_next(btree, leaf_address, ?right_leaf_address);
+        Leaf.update_next(btree, right_leaf_address, lefts_next_node);
+        Leaf.update_next(btree, leaf_address, ?right_leaf_address);
 
         
         switch (Leaf.get_next(btree, right_leaf_address)) {
             case (?next_address) {
-                Leaf.partial_update_prev(btree, next_address, ?right_leaf_address);
+                Leaf.update_prev(btree, next_address, ?right_leaf_address);
             };
             case (_) {};
         };
 
         right_leaf_address;
-    };
-
-    public func split(btree : MemoryBTree, leaf : Leaf, elem_index : Nat, key : (MemoryBlock, Blob), val: (MemoryBlock, Blob)) : Leaf {
-        let key_block = key.0;
-        let val_block = val.0;
-
-        let arr_len = leaf.0 [AC.COUNT];
-        let median = (arr_len / 2) + 1;
-
-        let is_elem_added_to_right = elem_index >= median;
-
-        var i = 0;
-        let right_cnt = arr_len + 1 - median : Nat;
-
-        let right_leaf = Leaf.new(btree);
-
-        var already_inserted = false;
-        var offset = if (is_elem_added_to_right) 0 else 1;
-
-        while (i < right_cnt) {
-            let j = i + median - offset : Nat;
-
-            if (j >= median and j == elem_index and not already_inserted) {
-                offset += 1;
-                already_inserted := true;
-                Leaf.put(btree, right_leaf, i, key, val);
-
-            } else {
-                // decrement left leaf count
-                leaf.0 [AC.COUNT] -= 1;
-                let ?key = ArrayMut.extract(leaf.2, j) else Debug.trap("Leaf.split: key is null");
-                let ?val = ArrayMut.extract(leaf.3, j) else Debug.trap("Leaf.split: val is null");
-                Leaf.put(btree, right_leaf, i, key, val);
-            };
-
-            i += 1;
-        };
-
-        if (not is_elem_added_to_right) {
-            Leaf.insert(btree, leaf, elem_index, key, val);
-        };
-
-        Leaf.update_count(btree, leaf, median);
-        Leaf.update_count(btree, right_leaf, right_cnt);
-
-        Leaf.update_index(btree, right_leaf, leaf.0 [AC.INDEX] + 1);
-        Leaf.update_parent(btree, right_leaf, leaf.1 [AC.PARENT]);
-
-        // update leaf pointers
-        Leaf.update_prev(btree, right_leaf, ?leaf.0 [AC.ADDRESS]);
-
-        Leaf.update_next(btree, right_leaf, leaf.1 [AC.NEXT]);
-        Leaf.update_next(btree, leaf, ?right_leaf.0 [AC.ADDRESS]);
-
-        switch (right_leaf.1 [AC.NEXT]) {
-            case (?next) {
-                let next_leaf = Leaf.from_address(btree, next, false);
-                Leaf.update_prev(btree, next_leaf, ?right_leaf.0 [AC.ADDRESS]);
-            };
-            case (_) {};
-        };
-
-        right_leaf;
     };
 
 };

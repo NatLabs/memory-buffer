@@ -54,6 +54,9 @@ module {
             order = Option.get(order, 32);
             var count = 0;
             var root = 0;
+            var branch_count = 0;
+            var leaf_count = 0;
+
             metadata = MemoryRegion.new();
             blobs = MemoryRegion.new();
 
@@ -62,10 +65,8 @@ module {
 
         init_region_header(btree_map);
 
-        let leaf = Leaf.new(btree_map);
-
-        let node = #leaf(leaf);
-        update_root(btree_map, leaf.0 [Leaf.AC.ADDRESS]);
+        let leaf_address = Leaf.new(btree_map);
+        update_root(btree_map, leaf_address);
 
         return btree_map;
     };
@@ -79,6 +80,7 @@ module {
     };
 
     public let REGION_HEADER_SIZE = 64;
+    public let METADATA_REGION_HEADER_SIZE = 96;
 
     public let POINTER_SIZE = 12;
     public let LAYOUT_VERSION = 0;
@@ -103,8 +105,10 @@ module {
         ORDER_ADDRESS = 8;
         ROOT_ADDRESS = 16;
         COUNT_ADDRESS = 24;
-        NODES_START = 64;
+        BRANCH_COUNT = 32;
+        LEAF_COUNT = 40;
         BLOB_START = 64;
+        NODES_START = 96;
     };
 
     func init_region_header(btree : MemoryBTree) {
@@ -126,6 +130,8 @@ module {
         MemoryRegion.storeNat16(btree.metadata, MC.ORDER_ADDRESS, Nat16.fromNat(btree.order)); // |2 bytes| Order -> Number of elements allowed in each node
         MemoryRegion.storeNat64(btree.metadata, MC.ROOT_ADDRESS, 0); // |8 bytes| Root -> Address of the root node
         MemoryRegion.storeNat64(btree.metadata, MC.COUNT_ADDRESS, 0); // |8 bytes| Count -> Number of elements in the buffer
+        MemoryRegion.storeNat64(btree.metadata, MC.BRANCH_COUNT, 0); // |8 bytes| Branch Count -> Number of Branch Nodes
+        MemoryRegion.storeNat64(btree.metadata, MC.LEAF_COUNT, 0); // |8 bytes| Leaf Count -> Number of Leaf Nodes
         assert MemoryRegion.size(btree.metadata) == REGION_HEADER_SIZE;
     };
 
@@ -143,18 +149,9 @@ module {
         MemoryRegion.storeNat64(btree.metadata, MC.COUNT_ADDRESS, Nat64.fromNat(new_count));
     };
 
-    func inc_subtree_size_from_address_upstream(btree: MemoryBTree, branch_address: Nat, _child_index: Nat) {
+    func inc_subtree_size(btree : MemoryBTree, branch_address : Nat, _child_index : Nat) {
         let subtree_size = Branch.get_subtree_size(btree, branch_address);
-        Branch.partial_update_subtree_size(btree, branch_address, subtree_size + 1);
-    };
-
-    func inc_subtree_size_upstream(btree: MemoryBTree, branch: Branch, _child_index: Nat) {
-        Branch.update_subtree_size(btree, branch, branch.0[Branch.AC.SUBTREE_SIZE] + 1);
-    };
-
-    func partial_inc_subtree_size(btree : MemoryBTree, branch_address : Nat, _child_index : Nat) {
-        let subtree_size = Branch.get_subtree_size(btree, branch_address);
-        Branch.partial_update_subtree_size(btree, branch_address, subtree_size + 1);
+        Branch.update_subtree_size(btree, branch_address, subtree_size + 1);
     };
 
     public func insert<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K, value : V) : ?V {
@@ -182,7 +179,7 @@ module {
 
             let val_block = MemoryBlock.replace_val(btree, prev_block, val_blob);
             let composite_val = (val_block, val_blob);
-            Leaf.partial_put_val(btree, leaf_address, elem_index, composite_val);
+            Leaf.put_val(btree, leaf_address, elem_index, composite_val);
 
             return ?mem_utils.1.from_blob(prev_val);
         };
@@ -194,16 +191,16 @@ module {
         let comp_val = (val_block, val_blob);
 
         if (count < btree.order) {
-            Leaf.partial_insert(btree, leaf_address, elem_index, comp_key, comp_val);
+            Leaf.insert(btree, leaf_address, elem_index, comp_key, comp_val);
             update_count(btree, btree.count + 1);
 
-            Methods.partial_update_leaf_to_root(btree, leaf_address, inc_subtree_size_from_address_upstream);
+            Methods.update_leaf_to_root(btree, leaf_address, inc_subtree_size);
             return null;
         };
 
         // split leaf
         var left_node_address = leaf_address;
-        var right_node_address = Leaf.partial_split(btree, left_node_address, elem_index, comp_key, comp_val);
+        var right_node_address = Leaf.split(btree, left_node_address, elem_index, comp_key, comp_val);
 
         var opt_parent = Leaf.get_parent(btree, right_node_address);
         let ?first_key = Leaf.get_key(btree, right_node_address, 0) else Debug.trap("insert: accessed a null value");
@@ -219,7 +216,7 @@ module {
 
             // increment parent subtree size by 1 for the new key-value pair
             let prev_parent_subtree_size = Branch.get_subtree_size(btree, parent_address);
-            Branch.partial_update_subtree_size(btree, parent_address, prev_parent_subtree_size + 1);
+            Branch.update_subtree_size(btree, parent_address, prev_parent_subtree_size + 1);
 
             let parent_count = Branch.get_count(btree, parent_address);
             assert MemoryRegion.loadBlob(btree.metadata, parent_address, Branch.MC.MAGIC_SIZE) == Branch.MC.MAGIC;
@@ -227,16 +224,16 @@ module {
             // insert right node in parent if there is enough space
             if (parent_count < btree.order) {
 
-                Branch.partial_insert(btree, parent_address, right_index, median_key, right_node_address);
+                Branch.insert(btree, parent_address, right_index, median_key, right_node_address);
                 update_count(btree, btree.count + 1);
 
-                Methods.partial_update_branch_to_root(btree, parent_address, partial_inc_subtree_size);
+                Methods.update_branch_to_root(btree, parent_address, inc_subtree_size);
                 return null;
             };
 
             // otherwise split parent 
             left_node_address := parent_address;
-            right_node_address := Branch.partial_split(btree, left_node_address, right_index, median_key, right_node_address);
+            right_node_address := Branch.split(btree, left_node_address, right_index, median_key, right_node_address);
             
             let ?first_key = Branch.get_key(btree, right_node_address, btree.order - 2) else Debug.trap("4. insert: accessed a null value in first key of branch");
             median_key := first_key;
@@ -247,12 +244,12 @@ module {
         };
 
         // new root
-        let new_root = Branch.partial_new(btree);
+        let new_root = Branch.new(btree);
 
-        Branch.partial_put_key(btree, new_root, 0, median_key);
+        Branch.put_key(btree, new_root, 0, median_key);
 
-        Branch.partial_add_child(btree, new_root, left_node_address);
-        Branch.partial_add_child(btree, new_root, right_node_address);
+        Branch.add_child(btree, new_root, left_node_address);
+        Branch.add_child(btree, new_root, right_node_address);
 
         assert Branch.get_count(btree, new_root) == 2;
 

@@ -14,8 +14,6 @@ import Map "mo:map/Map";
 
 import MemoryBTree "../../src/MemoryBTree/Base";
 import MemoryUtils "../../src/MemoryBTree/MemoryUtils";
-import VersionedMemoryBuffer "../../src/VersionedMemoryBuffer";
-import Migrations "../../src/Migrations";
 import Blobify "../../src/Blobify";
 import MemoryCmp "../../src/MemoryCmp";
 import Utils "../../src/Utils";

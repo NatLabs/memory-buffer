@@ -8,8 +8,8 @@ import Order "mo:base/Order";
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import RevIter "mo:itertools/RevIter";
 
-import Blobify "Blobify";
-import MemoryBuffer "MemoryBuffer";
+import Blobify "../Blobify";
+import MemoryBuffer "Base";
 import Migrations "Migrations";
 
 module VersionedMemoryBuffer {

@@ -14,7 +14,7 @@ import Itertools "mo:itertools/Iter";
 import RevIter "mo:itertools/RevIter";
 import MaxBpTreeMethods "mo:augmented-btrees/MaxBpTree/Methods";
 
-import { MemoryBuffer } "../../src";
+import { MemoryBuffer } "../../src/MemoryBuffer/Base";
 import Blobify "../../src/Blobify";
 
 import Utils "../../src/Utils";

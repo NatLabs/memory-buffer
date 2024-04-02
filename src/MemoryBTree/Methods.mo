@@ -150,25 +150,7 @@ module {
         };
     };
 
-    public func update_leaf_to_root(btree : MemoryBTree, leaf : Leaf, update : (MemoryBTree, Branch, Nat) -> ()) {
-        var parent = leaf.1 [Leaf.AC.PARENT];
-        var child_index = leaf.0 [Leaf.AC.INDEX];
-
-        loop {
-            switch (parent) {
-                case (?branch_address) {
-                    let branch = Branch.from_address(btree, branch_address, false);
-                    update(btree, branch, child_index);
-                    child_index := branch.0 [Branch.AC.INDEX];
-                    parent := branch.1 [Branch.AC.PARENT];
-                };
-
-                case (_) return;
-            };
-        };
-    };
-
-    public func partial_update_leaf_to_root(btree : MemoryBTree, leaf_address : Nat, update : (MemoryBTree, Nat, Nat) -> ()) {
+    public func update_leaf_to_root(btree : MemoryBTree, leaf_address : Nat, update : (MemoryBTree, Nat, Nat) -> ()) {
         var parent = Leaf.get_parent(btree, leaf_address);
         var child_index = Leaf.get_index(btree, leaf_address);
 
@@ -185,25 +167,7 @@ module {
         };
     };
 
-    public func update_branch_to_root(btree : MemoryBTree, branch : Branch, update : (MemoryBTree, Branch, Nat) -> ()) {
-        var parent = branch.1 [Branch.AC.PARENT];
-        var child_index = branch.0 [Branch.AC.INDEX];
-
-        loop {
-            switch (parent) {
-                case (?branch_address) {
-                    let branch = Branch.from_address(btree, branch_address, false);
-                    update(btree, branch, child_index);
-                    child_index := branch.0 [Branch.AC.INDEX];
-                    parent := branch.1 [Branch.AC.PARENT];
-                };
-
-                case (_) return;
-            };
-        };
-    };
-
-    public func partial_update_branch_to_root(btree : MemoryBTree, branch_address : Nat, update : (MemoryBTree, Nat, Nat) -> ()) {
+    public func update_branch_to_root(btree : MemoryBTree, branch_address : Nat, update : (MemoryBTree, Nat, Nat) -> ()) {
         var parent = Branch.get_parent(btree, branch_address);
         var child_index = Branch.get_index(btree, branch_address);
 

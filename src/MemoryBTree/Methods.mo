@@ -25,6 +25,7 @@ import ArrayMut "ArrayMut";
 import T "Types";
 import Leaf "Leaf";
 import Branch "Branch";
+import MemoryBlock "MemoryBlock";
 
 module {
     public type Leaf = T.Leaf;
@@ -43,26 +44,58 @@ module {
 
     public type MemoryCmp<A> = MemoryCmp.MemoryCmp<A>;
 
-    public func get_leaf_node<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : Leaf.Leaf {
-        var curr = ?Branch.get_node(btree, btree.root);
+    public func get_leaf_address<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K, _opt_key_blob: ?Blob) : Nat {
+        var curr_address = btree.root;
+        var opt_key_blob : ?Blob = _opt_key_blob;
 
         loop {
-            switch (curr) {
-                case (? #branch(node)) {
+            switch (Branch.get_node_type(btree, curr_address)) {
+                case (#leaf) {
+                    Leaf.add_to_cache(btree, curr_address);
+                    return curr_address
+                };
+                case (#branch) {
+                    // load breanch from stable memory
+                    // and add it to the cache
+                    Branch.add_to_cache(btree, curr_address);
+
+                    let count = Branch.get_count(btree, curr_address);
+                    
                     let int_index = switch (mem_utils.2) {
-                        case (#cmp(cmp)) MemoryFns.binary_search<K, V>(btree, mem_utils, node.2, cmp, key, node.0 [Branch.AC.COUNT] - 1);
+                        case (#cmp(cmp)) Branch.binary_search<K, V>(btree, mem_utils, curr_address, cmp, key, count - 1);
                         case (#blob_cmp(cmp)) {
-                            let key_blob = mem_utils.0.to_blob(key);
-                            MemoryFns.binary_search_blob_seq(btree.blobs, node.2, cmp, key_blob, node.0 [Branch.AC.COUNT] - 1);
+
+                            let key_blob = switch(opt_key_blob){
+                                case (null) {
+                                    let key_blob = mem_utils.0.to_blob(key);
+                                    opt_key_blob := ?key_blob;
+                                    key_blob
+                                };
+                                case (?key_blob) key_blob;
+                            };
+
+                            Branch.binary_search_blob_seq(btree, curr_address, cmp, key_blob, count - 1);
                         };
                     };
 
-                    let node_index = if (int_index >= 0) Int.abs(int_index) + 1 else Int.abs(int_index + 1);
-                    let ?node_address = node.3 [node_index] else Debug.trap("get_leaf_node: accessed a null value");
-                    curr := ?Branch.get_node(btree, node_address);
+                    let child_index = if (int_index >= 0) Int.abs(int_index) + 1 else Int.abs(int_index + 1);
+                    let ?child_address = Branch.get_child(btree, curr_address, child_index) else Debug.trap("get_leaf_node: accessed a null value");
+                    curr_address := child_address;
                 };
-                case (? #leaf(leaf_node)) return leaf_node;
-                case (_) Debug.trap("get_leaf_node: accessed a null value");
+            };
+        };
+    };
+
+    public func get_min_leaf_address(btree : MemoryBTree) : Nat {
+        var curr = btree.root;
+
+        loop {
+            switch (Branch.get_node_type(btree, curr)) {
+                case (#branch) {
+                    let ?first_child = Branch.get_child(btree, curr, 0) else Debug.trap("get_min_leaf: accessed a null value");
+                    curr := first_child;
+                };
+                case (#leaf) return curr;
             };
         };
     };
@@ -102,6 +135,21 @@ module {
         };
     };
 
+    public func get_max_leaf_address(btree : MemoryBTree) : Nat {
+        var curr = btree.root;
+
+        loop {
+            switch (Branch.get_node_type(btree, curr)) {
+                case (#branch) {
+                    let count = Branch.get_count(btree, curr);
+                    let ?first_child = Branch.get_child(btree, curr, count - 1) else Debug.trap("get_min_leaf: accessed a null value");
+                    curr := first_child;
+                };
+                case (#leaf) return curr;
+            };
+        };
+    };
+
     public func update_leaf_to_root(btree : MemoryBTree, leaf : Leaf, update : (MemoryBTree, Branch, Nat) -> ()) {
         var parent = leaf.1 [Leaf.AC.PARENT];
         var child_index = leaf.0 [Leaf.AC.INDEX];
@@ -109,10 +157,27 @@ module {
         loop {
             switch (parent) {
                 case (?branch_address) {
-                    let branch = Branch.from_address(btree, branch_address);
+                    let branch = Branch.from_address(btree, branch_address, false);
                     update(btree, branch, child_index);
                     child_index := branch.0 [Branch.AC.INDEX];
                     parent := branch.1 [Branch.AC.PARENT];
+                };
+
+                case (_) return;
+            };
+        };
+    };
+
+    public func partial_update_leaf_to_root(btree : MemoryBTree, leaf_address : Nat, update : (MemoryBTree, Nat, Nat) -> ()) {
+        var parent = Leaf.get_parent(btree, leaf_address);
+        var child_index = Leaf.get_index(btree, leaf_address);
+
+        loop {
+            switch (parent) {
+                case (?branch_address) {
+                    update(btree, branch_address, child_index);
+                    child_index := Branch.get_index(btree, branch_address);
+                    parent := Branch.get_parent(btree, branch_address);
                 };
 
                 case (_) return;
@@ -127,10 +192,27 @@ module {
         loop {
             switch (parent) {
                 case (?branch_address) {
-                    let branch = Branch.from_address(btree, branch_address);
+                    let branch = Branch.from_address(btree, branch_address, false);
                     update(btree, branch, child_index);
                     child_index := branch.0 [Branch.AC.INDEX];
                     parent := branch.1 [Branch.AC.PARENT];
+                };
+
+                case (_) return;
+            };
+        };
+    };
+
+    public func partial_update_branch_to_root(btree : MemoryBTree, branch_address : Nat, update : (MemoryBTree, Nat, Nat) -> ()) {
+        var parent = Branch.get_parent(btree, branch_address);
+        var child_index = Branch.get_index(btree, branch_address);
+
+        loop {
+            switch (parent) {
+                case (?branch_address) {
+                    update(btree, branch_address, child_index);
+                    child_index := Branch.get_index(btree, branch_address);
+                    parent := Branch.get_parent(btree, branch_address);
                 };
 
                 case (_) return;
@@ -194,103 +276,103 @@ module {
     //     (get_node(branch, key), rank);
     // };
 
-    public func new_iterator(
+    public func new_blobs_iterator(
         btree : MemoryBTree,
-        start_leaf : Leaf,
+        start_leaf : Nat,
         start_index : Nat,
-        end_leaf : Leaf,
+        end_leaf : Nat,
         end_index : Nat // exclusive
-    ) : RevIter<MemoryBlock> {
+    ) : RevIter<(Blob, Blob)> {
 
-        var opt_start = ?start_leaf;
+        var start = start_leaf;
         var i = start_index;
+        var start_count = Leaf.get_count(btree, start_leaf);
 
-        var opt_end = ?end_leaf;
+        var end = end_leaf;
         var j = end_index;
 
-        func next() : ?MemoryBlock {
-            let ?start = opt_start else return null;
-            let ?end = opt_end else return null;
+        var terminate = false;
 
-            if (start.0[Leaf.AC.ADDRESS] == end.0[Leaf.AC.ADDRESS] and i >= j) {
-                opt_start := null;
+        func next() : ?(Blob, Blob) {
+            if (terminate) return null;
+
+            if (start == end and i >= j) {
                 return null;
             };
 
-            if (i >= start.0[Leaf.AC.COUNT]) {
-                opt_start := switch(start.1[Leaf.AC.NEXT]){
-                    case (null) null;
-                    case (?next_address) ?Leaf.from_address(btree, next_address);
+            if (i >= start_count) {
+                switch(Leaf.get_next(btree, start)){
+                    case (null) {
+                        terminate := true;
+                    };
+                    case (?next_address) {
+                        start := next_address;
+                        start_count := Leaf.get_count(btree, next_address);
+                    };
                 };
+
                 i := 0;
                 return next();
             };
 
-            let mem_block = start.2[i];
+            let ?comp_key = Leaf.get_key(btree, start, i) else Debug.trap("new_blobs_iterator: accessed a null value");
+            let ?comp_val = Leaf.get_val(btree, start, i) else Debug.trap("new_blobs_iterator: accessed a null value");
+
             i += 1;
-            return mem_block;
+            return ?(comp_key.1, comp_val.1);
         };
 
-        func nextFromEnd() : ?MemoryBlock {
-            let ?start = opt_start else return null;
-            let ?end = opt_end else return null;
+        func nextFromEnd() : ?(Blob, Blob) {
+            if (terminate) return null;
 
-            if (start.0[Leaf.AC.ADDRESS] == end.0[Leaf.AC.ADDRESS] and i >= j) {
-                opt_end := null;
-                return null;
-            };
+            if (start == end and i >= j) return null;
 
             if (j == 0) {
-                opt_end := switch(start.1[Leaf.AC.PREV]){
-                    case (null) null;
-                    case (?prev_address) ?Leaf.from_address(btree, prev_address);
-                };
-
-                switch (opt_end) {
-                    case (?leaf) j := leaf.0[Leaf.AC.COUNT];
-                    case (_) { return null };
+                switch(Leaf.get_prev(btree, end)){
+                    case (null) terminate := true;
+                    case (?prev_address) {
+                        end := prev_address;
+                        j := Leaf.get_count(btree, prev_address);
+                    };
                 };
 
                 return nextFromEnd();
             };
 
-            let mem_block = end.2[j - 1];
+            let ?comp_key = Leaf.get_key(btree, end, j - 1) else Debug.trap("new_blobs_iterator: accessed a null value");
+            let ?comp_val = Leaf.get_val(btree, end, j - 1) else Debug.trap("new_blobs_iterator: accessed a null value");
+
             j -= 1;
 
-            return mem_block;
+            return ?(comp_key.1, comp_val.1);
         };
 
         RevIter.new(next, nextFromEnd);
     };
 
+    public func blocks(btree : MemoryBTree) : RevIter<(Blob, Blob)> {
+        let min_leaf = get_min_leaf_address(btree);
+        let max_leaf = get_max_leaf_address(btree);
+        let max_leaf_count = Leaf.get_count(btree, max_leaf);
+
+        new_blobs_iterator(btree, min_leaf, 0, max_leaf, max_leaf_count);
+    };
+
     public func entries<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(K, V)> {
-        let min_leaf = get_min_leaf(btree);
-        let max_leaf = get_max_leaf(btree);
-        let mem_blocks_iter = new_iterator(btree, min_leaf, 0, max_leaf, max_leaf.0[Leaf.AC.COUNT]);
-
-        RevIter.map<MemoryBlock, (K, V)>(
-            mem_blocks_iter,
-            func((kv_offset, key_size, value_size): MemoryBlock) : (K, V) {
-                let key_blob = MemoryRegion.loadBlob(btree.blobs, kv_offset, key_size);
-                let value_blob = MemoryRegion.loadBlob(btree.blobs, kv_offset + key_size, value_size);
-
+        RevIter.map<(Blob, Blob), (K, V)>(
+            blocks(btree),
+            func((key_blob, val_blob): (Blob, Blob)) : (K, V) {
                 let key = mem_utils.0.from_blob(key_blob);
-                let value = mem_utils.1.from_blob(value_blob);
+                let value = mem_utils.1.from_blob(val_blob);
                 (key, value);
             }
         );
     };
 
     public func keys<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(K)> {
-        let min_leaf = get_min_leaf(btree);
-        let max_leaf = get_max_leaf(btree);
-        let mem_blocks_iter = new_iterator(btree, min_leaf, 0, max_leaf, max_leaf.0[Leaf.AC.COUNT]);
-
-        RevIter.map<MemoryBlock, (K)>(
-            mem_blocks_iter,
-            func((kv_offset, key_size, value_size): MemoryBlock) : (K) {
-                let key_blob = MemoryRegion.loadBlob(btree.blobs, kv_offset, key_size);
-
+        RevIter.map<(Blob, Blob), (K)>(
+            blocks(btree),
+            func((key_blob, _): (Blob, Blob)) : (K) {
                 let key = mem_utils.0.from_blob(key_blob);
                 key;
             }
@@ -298,16 +380,10 @@ module {
     };
 
     public func vals<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(V)> {
-        let min_leaf = get_min_leaf(btree);
-        let max_leaf = get_max_leaf(btree);
-        let mem_blocks_iter = new_iterator(btree, min_leaf, 0, max_leaf, max_leaf.0[Leaf.AC.COUNT]);
-
-        RevIter.map<MemoryBlock, V>(
-            mem_blocks_iter,
-            func((kv_offset, key_size, value_size): MemoryBlock) : V {
-                let value_blob = MemoryRegion.loadBlob(btree.blobs, kv_offset + key_size, value_size);
-                let value = mem_utils.1.from_blob(value_blob);
-                
+        RevIter.map<(Blob, Blob), V>(
+            blocks(btree),
+            func((_, val_blob): (Blob, Blob)) : V {
+                let value = mem_utils.1.from_blob(val_blob);
                 value;
             }
         );

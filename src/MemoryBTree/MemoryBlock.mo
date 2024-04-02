@@ -23,32 +23,46 @@ module MemoryBlock {
     public type MemoryBlock = T.MemoryBlock;
     public type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
 
+    let {nhash} = LruCache;
 
-    public func store_kv(btree : MemoryBTree, key : Blob, value : Blob) : MemoryBlock {
-        let mb_address = MemoryRegion.allocate(btree.blobs, key.size() + value.size());
+    public func store_key(btree : MemoryBTree, key : Blob) : MemoryBlock {
+        let mb_address = MemoryRegion.allocate(btree.blobs, key.size());
         MemoryRegion.storeBlob(btree.blobs, mb_address, key);
-        MemoryRegion.storeBlob(btree.blobs, mb_address + key.size(), value);
 
-        (mb_address, key.size(), value.size());
+        // LruCache.put(btree.keys_cache, nhash, mb_address, key);
+
+        (mb_address, key.size());
     };
 
-    public func replace_kv(btree : MemoryBTree, prev_block : MemoryBlock, key : Blob, value : Blob) : (Nat, Nat, Nat) {
-        let new_mb_address = MemoryRegion.resize(btree.blobs, prev_block.0, prev_block.1 + prev_block.2, key.size() + value.size());
-        MemoryRegion.storeBlob(btree.blobs, new_mb_address, key);
-        MemoryRegion.storeBlob(btree.blobs, new_mb_address + key.size(), value);
+    public func store_val(btree : MemoryBTree, val : Blob) : MemoryBlock {
+        let mb_address = MemoryRegion.allocate(btree.blobs, val.size());
+        MemoryRegion.storeBlob(btree.blobs, mb_address, val);
 
-        (new_mb_address, key.size(), value.size());
+        // LruCache.put(btree.vals_cache, nhash, mb_address, val);
+
+        (mb_address, val.size());
+    };
+
+    public func replace_val(btree : MemoryBTree, prev_block : MemoryBlock, val : Blob) : MemoryBlock {
+        let new_mb_address = MemoryRegion.resize(btree.blobs, prev_block.0, prev_block.1, val.size());
+        MemoryRegion.storeBlob(btree.blobs, new_mb_address, val);
+
+        // ignore LruCache.remove(btree.vals_cache, nhash, prev_block.0);
+
+        // LruCache.put(btree.vals_cache, nhash, new_mb_address, val);
+
+        (new_mb_address, val.size());
     };
 
     public func get_key(btree : MemoryBTree, mb : MemoryBlock) : Blob {
-        MemoryRegion.loadBlob(btree.blobs, mb.0, mb.1);
+        let blob = MemoryRegion.loadBlob(btree.blobs, mb.0, mb.1);
+        // LruCache.put(btree.keys_cache, nhash, mb.0, blob);
+        blob;
     };
 
-    public func get_key_alt(btree : MemoryBTree, addr : Nat, size:Nat) : Blob {
-        MemoryRegion.loadBlob(btree.blobs, addr, size);
-    };
-
-    public func get_value(btree : MemoryBTree, mb : MemoryBlock) : Blob {
-        MemoryRegion.loadBlob(btree.blobs, mb.0 + mb.1, mb.2);
+    public func get_val(btree : MemoryBTree, mb : MemoryBlock) : Blob {
+        let blob = MemoryRegion.loadBlob(btree.blobs, mb.0, mb.1);
+        // LruCache.put(btree.vals_cache, nhash, mb.0, blob);
+        blob;
     };
 };

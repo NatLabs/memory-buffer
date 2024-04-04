@@ -352,5 +352,58 @@ module {
             }
         );
     };
+
+    public func validate_memory(btree : MemoryBTree) : Bool {
+        LruCache.clear(btree.nodes_cache);
+
+        func _validate(address: Nat): (index: Nat, subtree_size: Nat) {
+            assert MemoryRegion.loadBlob(btree.metadata, address, Leaf.MAGIC_SIZE) == Leaf.MAGIC;
+
+            switch(Branch.get_node_type(btree, address)){
+                case (#leaf) {
+                    let index = Leaf.get_index(btree, address);
+                    let count = Leaf.get_count(btree, address);
+
+                    var i = 0;
+
+                    while (i < count){
+                        let ?key = Leaf.get_key(btree, address, i) else Debug.trap("validate: accessed a null value");
+                        let ?val = Leaf.get_val(btree, address, i) else Debug.trap("validate: accessed a null value");
+
+                        i += 1;
+                    };
+
+                    assert i == count;
+                    (index, count);
+                };
+                case (#branch) {
+                    let index = Branch.get_index(btree, address);
+                    let count = Branch.get_count(btree, address);
+                    let subtree_size = Branch.get_subtree_size(btree, address);
+                    var children_subtree = 0;
+
+                    var i = 0;
+
+                    while (i < count){
+                        let ?child = Branch.get_child(btree, address, i) else Debug.trap("validate: accessed a null value");
+                        let (child_index, child_subtree_size) = _validate(child);
+
+                        
+                        assert child_index == i;
+                        children_subtree += child_subtree_size;
+
+                        i += 1;
+                    };
+
+                    assert i == count;
+                    assert children_subtree == subtree_size;
+
+                    (index, subtree_size);
+                };
+            };
+        };
+
+        _validate(btree.root) == (0, Branch.get_subtree_size(btree, btree.root));
+    };
     
 }

@@ -19,6 +19,7 @@ import MemoryCmp "../../src/MemoryCmp";
 import Utils "../../src/Utils";
 import Branch "../../src/MemoryBTree/Branch";
 import Leaf "../../src/MemoryBTree/Leaf";
+import Methods "../../src/MemoryBTree/Methods";
 
 type MemoryUtils<K, V> = MemoryBTree.MemoryUtils<K, V>;
 type Buffer<A> = Buffer.Buffer<A>;
@@ -117,6 +118,8 @@ suite(
 
                     prev := key;
                 };
+
+                assert Methods.validate_memory(btree);
             },
         );
 
@@ -135,6 +138,8 @@ suite(
                 Debug.print("entries size " # debug_show i);
                 assert i == sorted.size();
 
+                assert Methods.validate_memory(btree);
+
             },
         );
 
@@ -151,7 +156,103 @@ suite(
                     assert ?new_val == MemoryBTree.get(btree, MemoryUtils.Nat, key);
                 };
 
+                assert Methods.validate_memory(btree);
+
             },
+        );
+
+        test(
+            "clear()",
+            func(){
+                MemoryBTree.clear(btree);
+                assert MemoryBTree.size(btree) == 0;
+
+                assert Methods.validate_memory(btree);
+
+                MemoryBTree.clear(btree);
+                assert MemoryBTree.size(btree) == 0;
+
+                assert Methods.validate_memory(btree);
+            }
+            
+        );
+
+        test(
+            "insert random",
+            func() {
+                let map = Map.new<Nat, Nat>();
+                // assert btree.order == 4;
+
+                // Debug.print("random size " # debug_show random.size());
+                label for_loop for ((k, i) in random.vals()) {
+                    Debug.print("inserting " # debug_show k # " at index " # debug_show i);
+
+                    ignore Map.put(map, nhash, k, i);
+                    ignore MemoryBTree.insert(btree, MemoryUtils.Nat, k, i);
+                    assert MemoryBTree.size(btree) == i + 1;
+
+                    // Debug.print("keys " # debug_show MemoryBTree.toNodeKeys(btree));
+                    // Debug.print("leafs " # debug_show MemoryBTree.toLeafNodes(btree));
+
+                    let subtree_size = switch (Branch.get_node(btree, btree.root)) {
+                        case (#branch(node)) { node.0 [Branch.AC.SUBTREE_SIZE] };
+                        case (#leaf(node)) { node.0 [Leaf.AC.COUNT] };
+                    };
+
+                    Debug.print("subtree_size " # debug_show subtree_size);
+                    assert subtree_size == MemoryBTree.size(btree);
+
+                    if ( ?i != MemoryBTree.get(btree, MemoryUtils.Nat, k)){
+                        Debug.print("mismatch: " # debug_show (k, (i, MemoryBTree.get(btree, MemoryUtils.Nat, k))) # " at index " # debug_show i);
+                        assert false;
+                    };
+                };
+
+                // Debug.print("entries: " # debug_show Iter.toArray(MemoryBTree.entries(btree, MemoryUtils.Nat)));
+
+                let entries = MemoryBTree.entries(btree, MemoryUtils.Nat);
+                let entry = Utils.unwrap(entries.next(), "expected key");
+                var prev = entry.0;
+
+                for ((i, (key, val)) in Itertools.enumerate(entries)) {
+                    if (prev > key) {
+                        Debug.print("mismatch: " # debug_show (prev, key) # " at index " # debug_show i);
+                        assert false;
+                    };
+
+                    let expected = Map.get(map, nhash, key);
+                    if (expected != ?val) {
+                        Debug.print("mismatch: " # debug_show (key, (expected, val)) # " at index " # debug_show (i + 1));
+                        assert false;
+                    };
+
+                    if ( ?val != MemoryBTree.get(btree, MemoryUtils.Nat, key)){
+                        Debug.print("mismatch: " # debug_show (key, (expected, MemoryBTree.get(btree, MemoryUtils.Nat, key))) # " at index " # debug_show (i + 1));
+                        assert false;
+                    };
+
+                    prev := key;
+                };
+
+                assert Methods.validate_memory(btree);
+
+            },
+        );
+
+        test(
+            "clear() after the btree has been re-populated",
+            func(){
+                MemoryBTree.clear(btree);
+                assert MemoryBTree.size(btree) == 0;
+
+                assert Methods.validate_memory(btree);
+
+                MemoryBTree.clear(btree);
+                assert MemoryBTree.size(btree) == 0;
+
+                assert Methods.validate_memory(btree);
+            }
+            
         );
 
     },

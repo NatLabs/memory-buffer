@@ -17,6 +17,7 @@ import LruCache "mo:lru-cache";
 import BTree "mo:stableheapbtreemap/BTree";
 import RevIter "mo:itertools/RevIter";
 // import Branch "mo:augmented-btrees/BpTree/Branch";
+import Itertools "mo:itertools/Iter";
 
 import MemoryFns "./MemoryFns";
 import Blobify "../Blobify";
@@ -79,7 +80,7 @@ module {
         _new_with_options(order, false);
     };
 
-    public let REGION_HEADER_SIZE = 64;
+    public let BLOBS_REGION_HEADER_SIZE = 64;
     public let METADATA_REGION_HEADER_SIZE = 96;
 
     public let POINTER_SIZE = 12;
@@ -116,14 +117,14 @@ module {
         assert MemoryRegion.size(btree.metadata) == 0;
 
         // Each Region has a 64 byte header
-        ignore MemoryRegion.allocate(btree.blobs, REGION_HEADER_SIZE); // Reserved Space for the Region Header
+        ignore MemoryRegion.allocate(btree.blobs, BLOBS_REGION_HEADER_SIZE); // Reserved Space for the Region Header
         MemoryRegion.storeBlob(btree.blobs, MC.MAGIC_NUMBER_ADDRESS, "BLB"); // MAGIC NUMBER (BLB -> Blob Region) 3 bytes
         MemoryRegion.storeNat8(btree.blobs, MC.LAYOUT_VERSION_ADDRESS, Nat8.fromNat(LAYOUT_VERSION)); // |1 byte | Layout Version (1)
         MemoryRegion.storeNat32(btree.blobs, MC.REGION_ID_ADDRESS, Nat32.fromNat(MemoryRegion.id(btree.metadata))); // store the pointers region id in the blob region
-        assert MemoryRegion.size(btree.blobs) == REGION_HEADER_SIZE;
+        assert MemoryRegion.size(btree.blobs) == BLOBS_REGION_HEADER_SIZE;
 
         // | 64 byte header | -> 3 bytes + 1 byte + 8 bytes + 52 bytes
-        ignore MemoryRegion.allocate(btree.metadata, REGION_HEADER_SIZE); // Reserved Space for the Region Header
+        ignore MemoryRegion.allocate(btree.metadata, METADATA_REGION_HEADER_SIZE); // Reserved Space for the Region Header
         MemoryRegion.storeBlob(btree.metadata, MC.MAGIC_NUMBER_ADDRESS, "BTR"); // |3 bytes| MAGIC NUMBER (BTM -> BTree Map Region)
         MemoryRegion.storeNat8(btree.metadata, MC.LAYOUT_VERSION_ADDRESS, Nat8.fromNat(LAYOUT_VERSION)); // |1 byte | Layout Version (1)
         MemoryRegion.storeNat32(btree.metadata, MC.REGION_ID_ADDRESS, Nat32.fromNat(MemoryRegion.id(btree.blobs))); // store the blobs region id in the pointers region
@@ -132,7 +133,7 @@ module {
         MemoryRegion.storeNat64(btree.metadata, MC.COUNT_ADDRESS, 0); // |8 bytes| Count -> Number of elements in the buffer
         MemoryRegion.storeNat64(btree.metadata, MC.BRANCH_COUNT, 0); // |8 bytes| Branch Count -> Number of Branch Nodes
         MemoryRegion.storeNat64(btree.metadata, MC.LEAF_COUNT, 0); // |8 bytes| Leaf Count -> Number of Leaf Nodes
-        assert MemoryRegion.size(btree.metadata) == REGION_HEADER_SIZE;
+        assert MemoryRegion.size(btree.metadata) == METADATA_REGION_HEADER_SIZE;
     };
 
     public func size(btree : MemoryBTree) : Nat {
@@ -147,6 +148,16 @@ module {
     func update_count(btree : MemoryBTree, new_count : Nat) {
         btree.count := new_count;
         MemoryRegion.storeNat64(btree.metadata, MC.COUNT_ADDRESS, Nat64.fromNat(new_count));
+    };
+
+    func update_branch_count(btree : MemoryBTree, new_count : Nat) {
+        btree.branch_count := new_count;
+        MemoryRegion.storeNat64(btree.metadata, MC.BRANCH_COUNT, Nat64.fromNat(new_count));
+    };
+
+    func update_leaf_count(btree : MemoryBTree, new_count : Nat) {
+        btree.leaf_count := new_count;
+        MemoryRegion.storeNat64(btree.metadata, MC.LEAF_COUNT, Nat64.fromNat(new_count));
     };
 
     func inc_subtree_size(btree : MemoryBTree, branch_address : Nat, _child_index : Nat) {
@@ -280,7 +291,6 @@ module {
         let key_blob = mem_utils.0.to_blob(key);
 
         let leaf_address = Methods.get_leaf_address(btree, mem_utils, key, ?key_blob);
-        let keys = Leaf.get_keys(btree, leaf_address);
         let count = Leaf.get_count(btree, leaf_address);
 
         let int_index = switch (mem_utils.2) {
@@ -303,12 +313,13 @@ module {
     // public func get_block<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : ?MemoryBlock {
     //     let key_blob = mem_utils.0.to_blob(key);
 
-    //     let leaf = Methods.get_leaf_node(btree, mem_utils, key, ?key_blob);
+    //     let leaf_address = Methods.get_leaf_address(btree, mem_utils, key, ?key_blob);
+    //     let count = Leaf.get_count(btree, leaf_address);
 
     //     let int_index = switch (mem_utils.2) {
-    //         case (#cmp(cmp)) MemoryFns.binary_search<K, V>(btree, mem_utils, leaf.2, cmp, key, leaf.0 [Leaf.AC.COUNT]);
+    //         case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, leaf_address, cmp, key, count);
     //         case (#blob_cmp(cmp)) {
-    //             MemoryFns.binary_search_blob_seq(btree, leaf.2, cmp, key_blob, leaf.0 [Leaf.AC.COUNT]);
+    //             Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, count);
     //         };
     //     };
 
@@ -316,7 +327,8 @@ module {
 
     //     let elem_index = Int.abs(int_index);
         
-    //     leaf.2 [elem_index];
+    //     let ?comp_val = Leaf.get_val(btree, leaf_address, elem_index)else Debug.trap("get: accessed a null value");
+    //     ?(comp_val.0)
     // };
 
     public func getMin<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
@@ -339,6 +351,56 @@ module {
         let key = mem_utils.0.from_blob(key_blob);
         let value = mem_utils.1.from_blob(val_blob);
         ?(key, value);
+    };
+
+    public func clear(btree: MemoryBTree) {
+        // the first leaf node should be at the address where the header ends
+        let leaf_address = MC.NODES_START;
+        assert Leaf.validate(btree, leaf_address);
+
+        Leaf.clear(btree, leaf_address);
+        assert Leaf.validate(btree, leaf_address);
+
+        update_root(btree, leaf_address);
+        update_count(btree, 0);
+        update_branch_count(btree, 0);
+        update_leaf_count(btree, 1);
+
+        // Debug.print("blobs size: " # debug_show MemoryRegion.size(btree.blobs));
+
+        var prev_size = BLOBS_REGION_HEADER_SIZE;
+        for ((mem_block) in MemoryRegion.getFreeMemory(btree.blobs).vals()){
+            assert prev_size <= mem_block.0;
+            MemoryRegion.deallocate(btree.blobs, prev_size, mem_block.0 - prev_size);
+            prev_size := mem_block.0 + mem_block.1;
+        };
+
+        if (prev_size < MemoryRegion.size(btree.blobs)) {
+            MemoryRegion.deallocate(btree.blobs, prev_size, MemoryRegion.size(btree.blobs) - prev_size);
+        };
+
+        assert MemoryRegion.allocated(btree.blobs) == BLOBS_REGION_HEADER_SIZE;
+
+        let leaf_memory_size = Leaf.get_memory_size(btree);
+
+        let everything_after_leaf = leaf_address + leaf_memory_size;
+
+        prev_size := everything_after_leaf;
+        for ((mem_block) in MemoryRegion.getFreeMemory(btree.metadata).vals()){
+            assert prev_size <= mem_block.0;
+            MemoryRegion.deallocate(btree.metadata, prev_size, mem_block.0 - prev_size);
+            prev_size := mem_block.0 + mem_block.1;
+        };
+
+        if (prev_size < MemoryRegion.size(btree.metadata)) {
+            MemoryRegion.deallocate(btree.metadata, prev_size, MemoryRegion.size(btree.metadata) - prev_size);
+        };
+
+        // Debug.print("leaf_memory_size: " # debug_show leaf_memory_size);
+        // Debug.print("metadata size: " # debug_show MemoryRegion.allocated(btree.metadata));
+        
+        // Debug.print("metadata size after: " # debug_show MemoryRegion.allocated(btree.metadata));
+        assert MemoryRegion.allocated(btree.metadata) == everything_after_leaf;
     };
 
 };

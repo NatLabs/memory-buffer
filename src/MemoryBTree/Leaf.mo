@@ -164,7 +164,7 @@ module Leaf {
 
         leaf_address;
     };
-
+    
     func read_keys_into(btree: MemoryBTree, leaf_address: Nat, keys: [var ?(MemoryBlock, Blob)]){
         var i = 0;
 
@@ -183,7 +183,14 @@ module Leaf {
             i += 1;
         };
     };
-    
+
+    public func validate(btree : MemoryBTree, leaf_address : Nat) : Bool {
+        Debug.print("received magic " # debug_show (MemoryRegion.loadBlob(btree.metadata, leaf_address, MAGIC_SIZE), MAGIC));
+        MemoryRegion.loadBlob(btree.metadata, leaf_address, MAGIC_SIZE) == MAGIC
+        // assert MemoryRegion.loadNat8(btree.metadata, leaf_address + LAYOUT_VERSION_START) == LAYOUT_VERSION;
+        and MemoryRegion.loadNat8(btree.metadata, leaf_address + NODE_TYPE_START) == NODE_TYPE;
+    };
+
     public func from_memory(btree : MemoryBTree, leaf_address : Nat) : Leaf {
         assert MemoryRegion.loadBlob(btree.metadata, leaf_address, MAGIC_SIZE) == MAGIC;
         assert MemoryRegion.loadNat8(btree.metadata, leaf_address + LAYOUT_VERSION_START) == LAYOUT_VERSION;
@@ -557,6 +564,14 @@ module Leaf {
         MemoryRegion.storeNat64(btree.metadata, address + PREV_START, prev);
     };
 
+    public func clear(btree: MemoryBTree, leaf_address: Nat){
+        Leaf.update_index(btree, leaf_address, 0);
+        Leaf.update_count(btree, leaf_address, 0);
+        Leaf.update_parent(btree, leaf_address, null);
+        Leaf.update_prev(btree, leaf_address, null);
+        Leaf.update_next(btree, leaf_address, null);
+    };
+
     public func insert(btree: MemoryBTree, leaf_address: Nat, index: Nat, key: (MemoryBlock, Blob), val: (MemoryBlock, Blob)){
         let count = Leaf.get_count(btree, leaf_address);
         
@@ -712,5 +727,7 @@ module Leaf {
 
         right_leaf_address;
     };
+
+    
 
 };

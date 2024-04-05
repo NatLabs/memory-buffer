@@ -23,11 +23,11 @@ import MemoryFns "./MemoryFns";
 import Blobify "../Blobify";
 import MemoryCmp "../MemoryCmp";
 import Leaf "Leaf";
-import Branch "Branch";
+import Branch "./Branch";
 import T "Types";
-import ArrayMut "ArrayMut";
-import Methods "Methods";
-import MemoryBlock "MemoryBlock";
+import ArrayMut "./ArrayMut";
+import Methods "./Methods";
+import MemoryBlock "./MemoryBlock";
 
 module {
     type Address = Nat;
@@ -184,25 +184,20 @@ module {
 
         if (int_index >= 0) {
             // existing key
-            let ?prev = Leaf.get_val(btree, leaf_address, elem_index) else Debug.trap("insert: accessed a null value");
-            let prev_block = prev.0;
-            let prev_val = prev.1;
+            let ?prev_val_block = Leaf.get_val_block(btree, leaf_address, elem_index) else Debug.trap("insert: accessed a null value");
+            let ?prev_val_blob = Leaf.get_val_blob(btree, leaf_address, elem_index) else Debug.trap("insert: accessed a null value");
 
-            let val_block = MemoryBlock.replace_val(btree, prev_block, val_blob);
-            let composite_val = (val_block, val_blob);
-            Leaf.put_val(btree, leaf_address, elem_index, composite_val);
+            let val_block = MemoryBlock.replace_val(btree, prev_val_block, val_blob);
+            Leaf.put_val(btree, leaf_address, elem_index, val_block, val_blob);
 
-            return ?mem_utils.1.from_blob(prev_val);
+            return ?mem_utils.1.from_blob(prev_val_blob);
         };
 
         let key_block = MemoryBlock.store_key(btree, key_blob);
         let val_block = MemoryBlock.store_val(btree, val_blob);
 
-        let comp_key = (key_block, key_blob);
-        let comp_val = (val_block, val_blob);
-
         if (count < btree.order) {
-            Leaf.insert(btree, leaf_address, elem_index, comp_key, comp_val);
+            Leaf.insert(btree, leaf_address, elem_index, key_block, key_blob, val_block, val_blob);
             update_count(btree, btree.count + 1);
 
             Methods.update_leaf_to_root(btree, leaf_address, inc_subtree_size);
@@ -211,12 +206,16 @@ module {
 
         // split leaf
         var left_node_address = leaf_address;
-        var right_node_address = Leaf.split(btree, left_node_address, elem_index, comp_key, comp_val);
+        var right_node_address = Leaf.split(btree, left_node_address, elem_index, key_block, key_blob, val_block, val_blob);
 
         var opt_parent = Leaf.get_parent(btree, right_node_address);
-        let ?first_key = Leaf.get_key(btree, right_node_address, 0) else Debug.trap("insert: accessed a null value");
-        var median_key = first_key;
         var right_index = Leaf.get_index(btree, right_node_address);
+
+        let ?first_key_block = Leaf.get_key_block(btree, right_node_address, 0) else Debug.trap("insert: accessed a null value");
+        let ?first_key_blob = Leaf.get_key_blob(btree, right_node_address, 0) else Debug.trap("insert: accessed a null value");
+        var median_key_block = first_key_block;
+        var median_key_blob = first_key_blob;
+
 
         assert Leaf.get_count(btree, left_node_address) == (btree.order / 2) + 1;
         assert Leaf.get_count(btree, right_node_address) == (btree.order / 2);
@@ -235,7 +234,7 @@ module {
             // insert right node in parent if there is enough space
             if (parent_count < btree.order) {
 
-                Branch.insert(btree, parent_address, right_index, median_key, right_node_address);
+                Branch.insert(btree, parent_address, right_index, median_key_block, median_key_blob, right_node_address);
                 update_count(btree, btree.count + 1);
 
                 Methods.update_branch_to_root(btree, parent_address, inc_subtree_size);
@@ -244,10 +243,12 @@ module {
 
             // otherwise split parent 
             left_node_address := parent_address;
-            right_node_address := Branch.split(btree, left_node_address, right_index, median_key, right_node_address);
+            right_node_address := Branch.split(btree, left_node_address, right_index, median_key_block, median_key_blob, right_node_address);
             
-            let ?first_key = Branch.get_key(btree, right_node_address, btree.order - 2) else Debug.trap("4. insert: accessed a null value in first key of branch");
-            median_key := first_key;
+            let ?first_key_block = Branch.get_key_block(btree, right_node_address, btree.order - 2) else Debug.trap("4. insert: accessed a null value in first key of branch");
+            let ?first_key_blob = Branch.get_key_blob(btree, right_node_address, btree.order - 2) else Debug.trap("4. insert: accessed a null value in first key of branch");
+            median_key_block := first_key_block;
+            median_key_blob := first_key_blob;
 
             right_index := Branch.get_index(btree, right_node_address);
             opt_parent := Branch.get_parent(btree, right_node_address);
@@ -257,7 +258,7 @@ module {
         // new root
         let new_root = Branch.new(btree);
 
-        Branch.put_key(btree, new_root, 0, median_key);
+        Branch.put_key(btree, new_root, 0, median_key_block, median_key_blob);
 
         Branch.add_child(btree, new_root, left_node_address);
         Branch.add_child(btree, new_root, right_node_address);
@@ -304,8 +305,7 @@ module {
 
         let elem_index = Int.abs(int_index);
         
-        let ?comp_val = Leaf.get_val(btree, leaf_address, elem_index)else Debug.trap("get: accessed a null value");
-        let val_blob = comp_val.1;
+        let ?val_blob = Leaf.get_val_blob(btree, leaf_address, elem_index) else Debug.trap("get: accessed a null value");
         let value = mem_utils.1.from_blob(val_blob);
         ?value;
     };
@@ -332,10 +332,10 @@ module {
     // };
 
     public func getMin<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
-        let leaf = Methods.get_min_leaf(btree);
+        let leaf_address = Methods.get_min_leaf_address(btree);
 
-        let ?(key_block, key_blob) = leaf.2 [0] else return null;
-        let ?(val_block, val_blob) = leaf.3 [0] else return null;
+        let ?key_blob = Leaf.get_key_blob(btree, leaf_address, 0) else Debug.trap("getMin: accessed a null value");
+        let ?val_blob = Leaf.get_val_blob(btree, leaf_address, 0) else Debug.trap("getMin: accessed a null value");
 
         let key = mem_utils.0.from_blob(key_blob);
         let value = mem_utils.1.from_blob(val_blob);
@@ -343,10 +343,11 @@ module {
     };
 
     public func getMax<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
-        let leaf = Methods.get_max_leaf(btree);
+        let leaf_address = Methods.get_max_leaf_address(btree);
+        let count = Leaf.get_count(btree, leaf_address);
 
-        let ?(key_block, key_blob) = leaf.2 [leaf.0 [Leaf.AC.COUNT] - 1] else return null;
-        let ?(val_block, val_blob) = leaf.3 [leaf.0 [Leaf.AC.COUNT] - 1] else return null;
+        let ?key_blob = Leaf.get_key_blob(btree, leaf_address, count - 1 : Nat) else Debug.trap("getMax: accessed a null value");
+        let ?val_blob = Leaf.get_val_blob(btree, leaf_address, count - 1 : Nat) else Debug.trap("getMax: accessed a null value");
 
         let key = mem_utils.0.from_blob(key_blob);
         let value = mem_utils.1.from_blob(val_blob);

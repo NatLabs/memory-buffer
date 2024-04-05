@@ -24,15 +24,17 @@ module {
     public type Leaf = (
         nats : [var Nat], // [address, index, count]
         adjacent_nodes : [var ?Nat], // [parent, prev, next] (is_root if parent is null)
-        keys : [var ?(MemoryBlock, Blob)], // [... ((key address, key size), key blob)]
-        vals : [var ?(MemoryBlock, Blob)]
+        key_blocks : [var ?(MemoryBlock)], // [... ((key address, key size), key blob)]
+        val_blocks : [var ?(MemoryBlock)],
+        kv_blobs : [var ?(Blob, Blob)],
     );
 
     public type Branch = (
         nats : [var Nat], // [address, index, count, subtree_size]
         parent : [var ?Nat], // parent
-        keys : [var ?(MemoryBlock, Blob)], // [... ((key address, key size), key blob)]
+        key_blocks : [var ?(MemoryBlock)], // [... ((key address, key size), key blob)]
         children_nodes : [var ?Nat], // [... child address]
+        keys_blobs : [var ?Blob],
     );
 
     public type MemoryUtils<K, V> = (

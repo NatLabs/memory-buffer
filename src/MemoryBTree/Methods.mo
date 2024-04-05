@@ -279,11 +279,10 @@ module {
                 return next();
             };
 
-            let ?comp_key = Leaf.get_key(btree, start, i) else Debug.trap("new_blobs_iterator: accessed a null value");
-            let ?comp_val = Leaf.get_val(btree, start, i) else Debug.trap("new_blobs_iterator: accessed a null value");
+            let opt_kv = Leaf.get_kv_blobs(btree, start, i);
 
             i += 1;
-            return ?(comp_key.1, comp_val.1);
+            return opt_kv;
         };
 
         func nextFromEnd() : ?(Blob, Blob) {
@@ -303,12 +302,11 @@ module {
                 return nextFromEnd();
             };
 
-            let ?comp_key = Leaf.get_key(btree, end, j - 1) else Debug.trap("new_blobs_iterator: accessed a null value");
-            let ?comp_val = Leaf.get_val(btree, end, j - 1) else Debug.trap("new_blobs_iterator: accessed a null value");
+            let opt_kv = Leaf.get_kv_blobs(btree, end, j - 1);
 
             j -= 1;
 
-            return ?(comp_key.1, comp_val.1);
+            return opt_kv;
         };
 
         RevIter.new(next, nextFromEnd);
@@ -367,8 +365,8 @@ module {
                     var i = 0;
 
                     while (i < count){
-                        let ?key = Leaf.get_key(btree, address, i) else Debug.trap("validate: accessed a null value");
-                        let ?val = Leaf.get_val(btree, address, i) else Debug.trap("validate: accessed a null value");
+                        let ?key = Leaf.get_key_block(btree, address, i) else Debug.trap("validate: accessed a null value");
+                        let ?val = Leaf.get_val_block(btree, address, i) else Debug.trap("validate: accessed a null value");
 
                         i += 1;
                     };

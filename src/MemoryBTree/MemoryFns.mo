@@ -6,7 +6,7 @@ import Debug "mo:base/Debug";
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import MemoryUtils "../MemoryBTree/MemoryUtils";
 import T "Types";
-import MemoryBlock "MemoryBlock";
+import MemoryBlock "./MemoryBlock";
 
 module {
     type MemoryRegion = MemoryRegion.MemoryRegion;

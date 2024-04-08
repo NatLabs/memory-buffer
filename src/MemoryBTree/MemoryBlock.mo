@@ -3,7 +3,6 @@ import Blob "mo:base/Blob";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import LruCache "mo:lru-cache";
-import BTree "mo:stableheapbtreemap/BTree";
 import RevIter "mo:itertools/RevIter";
 
 import MemoryCmp "../MemoryCmp";
@@ -64,5 +63,13 @@ module MemoryBlock {
         let blob = MemoryRegion.loadBlob(btree.blobs, mb.0, mb.1);
         // LruCache.put(btree.vals_cache, nhash, mb.0, blob);
         blob;
+    };
+
+    public func remove_val(btree : MemoryBTree, mb : MemoryBlock) {
+        MemoryRegion.deallocate(btree.blobs, mb.0, mb.1);
+    };
+
+    public func remove_key(btree : MemoryBTree, mb : MemoryBlock) {
+        MemoryRegion.deallocate(btree.blobs, mb.0, mb.1);
     };
 };

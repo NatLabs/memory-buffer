@@ -48,6 +48,15 @@ module {
     //     if (index == 398) Debug.print("new (i, address, size): " # debug_show (index, value_address, value_size));
     // };
 
+    public func sized_iter_to_array<A>(iter: Iter<A>, size: Nat): [A] {
+        Array.tabulate(size, func(_i: Nat): A {
+            switch (iter.next()) {
+                case (null) Debug.trap("sized_iter_to_array: found null before end of iter");
+                case (?(a)) return a;
+            };
+        });
+    };
+
     public func unwrap<T>(optional: ?T, trap_msg: Text) : T {
         switch(optional) {
             case (?v) return v;

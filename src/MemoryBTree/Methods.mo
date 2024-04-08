@@ -11,11 +11,13 @@ import Nat64 "mo:base/Nat64";
 import Blob "mo:base/Blob";
 import Result "mo:base/Result";
 import Order "mo:base/Order";
+import Buffer "mo:base/Buffer";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import LruCache "mo:lru-cache";
 import BTree "mo:stableheapbtreemap/BTree";
 import RevIter "mo:itertools/RevIter";
+import BufferDeque "mo:buffer-deque/BufferDeque";
 // import Branch "mo:augmented-btrees/BpTree/Branch";
 
 import MemoryFns "./MemoryFns";
@@ -351,6 +353,114 @@ module {
         );
     };
 
+    public func new_leaf_address_iterator(
+        btree : MemoryBTree,
+        start_leaf : Nat,
+        end_leaf : Nat,
+    ) : RevIter<Nat> {
+
+        var start = start_leaf;
+        var end = end_leaf;
+
+        var terminate = false;
+
+        func next() : ?Nat {
+            if (terminate) return null;
+
+            if (start == end) terminate := true;
+
+            let curr = start;
+
+            switch(Leaf.get_next(btree, start)){
+                case (null) terminate := true;
+                case (?next_address) start := next_address;
+            };
+
+            return ?curr;
+        };
+
+        func nextFromEnd() : ?Nat {
+            if (terminate) return null;
+
+            if (start == end) terminate := true;
+
+            let curr = end;
+
+            switch(Leaf.get_prev(btree, end)){
+                case (null) terminate := true;
+                case (?prev_address) end := prev_address;
+            };
+
+            return ?curr;
+        };
+
+        RevIter.new(next, nextFromEnd);
+    };
+
+    public func leaf_nodes<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : RevIter<[?(K, V)]> {
+        let min_leaf = get_min_leaf_address(btree);
+        let max_leaf = get_max_leaf_address(btree);
+
+        RevIter.map<Nat, [?(K, V)]>(
+            new_leaf_address_iterator(btree, min_leaf, max_leaf),
+            func(leaf_address: Nat) : [?(K, V)] {
+                let leaf = Leaf.from_address(btree, leaf_address, false);
+
+                Array.tabulate<?(K, V)>(
+                    btree.order,
+                    func (i: Nat) : ?(K, V) {
+                        if (i >= leaf.0[Leaf.AC.COUNT]) return null;
+
+                        let ?(key, val) = leaf.4[i] else Debug.trap("leaf_nodes: accessed a null value");
+                        ?(mem_utils.0.from_blob(key), mem_utils.1.from_blob(val));
+                    }
+                );
+            }
+        );
+    };
+
+    public func node_keys<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : [[(Nat, [?K])]]{
+        var nodes = BufferDeque.fromArray<Address>([btree.root]);
+        var buffer = Buffer.Buffer<[(Nat, [?K])]>(btree.branch_count);
+
+        while (nodes.size() > 0){
+            let row = Buffer.Buffer<(Nat, [?K])>(nodes.size()); 
+
+            for (_ in Iter.range(1, nodes.size())){
+                let ?node = nodes.popFront() else Debug.trap("node_keys: accessed a null value");
+
+                switch(Branch.get_node_type(btree, node)){
+                    case (#leaf) { };
+                    case (#branch) {
+                        let branch = Branch.from_address(btree, node, false);
+
+                        let keys = Array.tabulate<?K>(
+                            branch.0[Branch.AC.COUNT] - 1,
+                            func(i: Nat) : ?K {
+                                switch(branch.4[i]){
+                                    case (?key_blob) {
+                                        let key = mem_utils.0.from_blob(key_blob);
+                                        return ?key;
+                                    };
+                                    case (_) return null;
+                                };
+                            }
+                        );
+
+                        row.add((node, keys));
+
+                        for (i in Iter.range(0, branch.0[Branch.AC.COUNT] - 1)){
+                            let ?child = branch.3[i] else Debug.trap("node_keys: accessed a null value");
+                            nodes.addBack(child);
+                        };
+                    };
+                };
+            };
+        };
+
+        Buffer.toArray(buffer);
+    };
+
     public func validate_memory(btree : MemoryBTree) : Bool {
         LruCache.clear(btree.nodes_cache);
 
@@ -401,7 +511,11 @@ module {
             };
         };
 
-        _validate(btree.root) == (0, Branch.get_subtree_size(btree, btree.root));
+        let response = _validate(btree.root);
+        Debug.print("Validate respoinse: " # debug_show response);  
+        Debug.print("expected response: " # debug_show (0, Branch.get_node_subtree_size(btree, btree.root)));
+        response == (0, Branch.get_node_subtree_size(btree, btree.root));
     };
+
     
 }

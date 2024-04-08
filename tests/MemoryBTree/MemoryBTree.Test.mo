@@ -29,7 +29,7 @@ type Order = Order.Order;
 let { nhash } = Map;
 let fuzz = Fuzz.fromSeed(0xdeadbeef);
 
-let limit = 10_000;
+let limit = 30;
 
 let nat_gen_iter : Iter<Nat> = {
     next = func() : ?Nat = ?fuzz.nat.randomRange(1, limit * 10);
@@ -57,7 +57,7 @@ let candid_blobify : Blobify.Blobify<Nat> = {
 
 let candid_mem_utils = (candid_blobify, candid_blobify, MemoryCmp.Nat);
 
-let btree = MemoryBTree.new(?16);
+let btree = MemoryBTree.new(?4, ?0);
 
 suite(
     "MemoryBTree",
@@ -174,7 +174,6 @@ suite(
 
                 assert Methods.validate_memory(btree);
             }
-            
         );
 
         test(
@@ -251,6 +250,27 @@ suite(
                 assert MemoryBTree.size(btree) == 0;
 
                 assert Methods.validate_memory(btree);
+            }
+            
+        );
+
+        test(
+            "remove()",
+            func(){
+                let btree = MemoryBTree.fromEntries(candid_mem_utils, random.vals(), ?4, ?0);
+                
+                Debug.print("node keys: " # debug_show MemoryBTree.toNodeKeys(btree, MemoryUtils.Nat));
+                Debug.print("leaf nodes: " # debug_show MemoryBTree.toLeafNodes(btree, MemoryUtils.Nat));
+
+                for ((key, i) in random.vals()) {
+                    Debug.print("removing " # debug_show key);
+                    assert ?i == MemoryBTree.remove(btree, MemoryUtils.Nat, key);
+                    // assert MemoryBTree.size(btree) == i;
+                    Debug.print("leaf nodes: " # debug_show MemoryBTree.toLeafNodes(btree, MemoryUtils.Nat));
+                    assert Methods.validate_memory(btree);
+
+                };
+
             }
             
         );

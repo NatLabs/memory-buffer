@@ -1,7 +1,9 @@
 import BlobifyModule "Blobify";
-import MemoryBufferModule "MemoryBuffer";
-import MemoryBufferClassModule "MemoryBufferClass";
-import VersionedMemoryBufferModule "VersionedMemoryBuffer";
+import MemoryBufferModule "MemoryBuffer/Base";
+import MemoryBufferClassModule "MemoryBuffer/Class";
+import VersionedMemoryBufferModule "MemoryBuffer/Versioned";
+
+import MemoryBTreeModule "MemoryBTree/Base";
 
 module {
     public let MemoryBuffer = MemoryBufferModule;
@@ -14,4 +16,7 @@ module {
 
     public type Blobify<A> = BlobifyModule.Blobify<A>;
     public let Blobify = BlobifyModule;
+
+    public type MemoryBTree = MemoryBTreeModule.MemoryBTree;
+    public let MemoryBTree = MemoryBTreeModule.MemoryBTree;
 };

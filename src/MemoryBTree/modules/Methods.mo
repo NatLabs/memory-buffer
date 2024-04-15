@@ -21,14 +21,12 @@ import BufferDeque "mo:buffer-deque/BufferDeque";
 // import Branch "mo:augmented-btrees/BpTree/Branch";
 
 import MemoryFns "./MemoryFns";
-import Blobify "../Blobify";
-import MemoryCmp "../MemoryCmp";
 import ArrayMut "ArrayMut";
 import T "Types";
 import Leaf "Leaf";
 import Branch "Branch";
 import MemoryBlock "MemoryBlock";
-import Migrations "migrations";
+import Migrations "../migrations";
 import MemoryUtils "MemoryUtils";
 
 module {
@@ -39,14 +37,12 @@ module {
     type Address = Nat;
     type MemoryRegion = MemoryRegion.MemoryRegion;
     type LruCache<K, V> = LruCache.LruCache<K, V>;
-    type Blobify<A> = Blobify.Blobify<A>;
     type RevIter<A> = RevIter.RevIter<A>;
     type Node = Migrations.Node;
     public type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
 
     public type Branch = Migrations.Branch;
 
-    public type MemoryCmp<A> = MemoryCmp.MemoryCmp<A>;
 
     public func get_leaf_address<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K, _opt_key_blob : ?Blob) : Nat {
         var curr_address = btree.root;

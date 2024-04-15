@@ -4,7 +4,7 @@ import RevIter "mo:itertools/RevIter";
 import Migrations "migrations";
 import MemoryBTree "Base";
 import VersionedMemoryBTree "Versioned";
-import T "Types";
+import T "modules/Types";
 import Versioned "Versioned";
 
 module {

@@ -15,12 +15,10 @@ import RevIter "mo:itertools/RevIter";
 // import Branch "mo:augmented-btrees/BpTree/Branch";
 
 import MemoryFns "MemoryFns";
-import Blobify "../Blobify";
-import MemoryCmp "../MemoryCmp";
 import ArrayMut "ArrayMut";
 import MemoryBlock "MemoryBlock";
 import T "Types";
-import Migrations "migrations";
+import Migrations "../migrations";
 
 module Leaf {
     public type Leaf = Migrations.Leaf;

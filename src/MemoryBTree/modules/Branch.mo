@@ -19,19 +19,16 @@ import RevIter "mo:itertools/RevIter";
 // import Branch "mo:augmented-btrees/BpTree/Branch";
 
 import MemoryFns "MemoryFns";
-import Blobify "../Blobify";
-import MemoryCmp "../MemoryCmp";
 import ArrayMut "ArrayMut";
 import T "Types";
 import Leaf "Leaf";
 import MemoryBlock "MemoryBlock";
-import Migrations "migrations";
+import Migrations "../migrations";
 
 module Branch {
 
     type MemoryRegion = MemoryRegion.MemoryRegion;
     type LruCache<K, V> = LruCache.LruCache<K, V>;
-    type Blobify<A> = Blobify.Blobify<A>;
     type RevIter<A> = RevIter.RevIter<A>;
     type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
     type MemoryBTree = Migrations.MemoryBTree;
@@ -41,8 +38,6 @@ module Branch {
     type NodeType = T.NodeType;
 
     public type Branch = Migrations.Branch;
-
-    public type MemoryCmp<A> = MemoryCmp.MemoryCmp<A>;
 
     let { nhash } = LruCache;
 
@@ -1008,8 +1003,6 @@ module Branch {
             case (_) {};
         };
         
-        // Debug.print("shifting: " # debug_show (start, end, offset));
-
         if (start != 0) {
             let key_offset = get_key_offset(branch, start - 1);
             let key_end_boundary = get_key_offset(branch, end - 1);

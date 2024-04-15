@@ -3,7 +3,7 @@ import RevIter "mo:itertools/RevIter";
 
 import Migrations "migrations";
 import MemoryBTree "Base";
-import T "Types";
+import T "modules/Types";
 
 module VersionedMemoryBTree {
     public type MemoryBTree = Migrations.MemoryBTree;

@@ -13,13 +13,13 @@ import Itertools "mo:itertools/Iter";
 import Map "mo:map/Map";
 
 import MemoryBTree "../../src/MemoryBTree/Base";
-import MemoryUtils "../../src/MemoryBTree/MemoryUtils";
+import MemoryUtils "../../src/MemoryBTree/modules/MemoryUtils";
 import Blobify "../../src/Blobify";
 import MemoryCmp "../../src/MemoryCmp";
 import Utils "../../src/Utils";
-import Branch "../../src/MemoryBTree/Branch";
-import Leaf "../../src/MemoryBTree/Leaf";
-import Methods "../../src/MemoryBTree/Methods";
+import Branch "../../src/MemoryBTree/modules/Branch";
+import Leaf "../../src/MemoryBTree/modules/Leaf";
+import Methods "../../src/MemoryBTree/modules/Methods";
 
 type MemoryUtils<K, V> = MemoryBTree.MemoryUtils<K, V>;
 type Buffer<A> = Buffer.Buffer<A>;

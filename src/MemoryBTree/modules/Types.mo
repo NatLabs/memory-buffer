@@ -5,8 +5,8 @@ import LruCache "mo:lru-cache";
 import RevIter "mo:itertools/RevIter";
 // import Branch "mo:augmented-btrees/BpTree/Branch";
 
-import Blobify "../Blobify";
-import MemoryCmp "../MemoryCmp";
+import Blobify "../../Blobify";
+import MemoryCmp "../../MemoryCmp";
 
 module {
     public type Address = Nat;

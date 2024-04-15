@@ -21,16 +21,15 @@ import Itertools "mo:itertools/Iter";
 
 import Blobify "../Blobify";
 import MemoryCmp "../MemoryCmp";
-import MemoryFns "MemoryFns";
-import Leaf "Leaf";
-import T "Types";
-import ArrayMut "ArrayMut";
-import Methods "Methods";
-import MemoryBlock "MemoryBlock";
-import Branch "Branch";
+import MemoryFns "modules/MemoryFns";
+import ArrayMut "modules/ArrayMut";
+import Methods "modules/Methods";
+import MemoryBlock "modules/MemoryBlock";
+import Branch "modules/Branch";
 import Utils "../Utils";
 import Migrations "Migrations";
-
+import Leaf "modules/Leaf";
+import T "modules/Types";
 module {
     type Address = Nat;
     type MemoryRegion = MemoryRegion.MemoryRegion;
@@ -642,13 +641,15 @@ module {
     };
 
     public func removeMin<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
-        let ?min = getMin(btree, mem_utils) else return null;
-        remove(btree, mem_utils, key);
+        let ?min = getMin<K, V>(btree, mem_utils) else return null;
+        ignore remove<K, V>(btree, mem_utils, min.0);
+        ?min
     };
 
     public func removeMax<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
-        let ?max = getMax(btree, mem_utils) else return null;
-        remove(btree, mem_utils, key);
+        let ?max = getMax<K, V>(btree, mem_utils) else return null;
+        ignore remove<K, V>(btree, mem_utils, max.0);
+        ?max
     };
 
     public func fromArray<K, V>(mem_utils: MemoryUtils<K, V>, arr : [(K, V)], order : ?Nat) : MemoryBTree {

@@ -5,8 +5,7 @@ import MemoryRegion "mo:memory-region/MemoryRegion";
 import LruCache "mo:lru-cache";
 import RevIter "mo:itertools/RevIter";
 
-import MemoryCmp "../MemoryCmp";
-import Migrations "migrations";
+import Migrations "../migrations";
 import T "Types";
 
 module MemoryBlock {
@@ -15,8 +14,6 @@ module MemoryBlock {
     type MemoryRegion = MemoryRegion.MemoryRegion;
     type LruCache<K, V> = LruCache.LruCache<K, V>;
     type RevIter<A> = RevIter.RevIter<A>;
-
-    public type MemoryCmp<A> = MemoryCmp.MemoryCmp<A>;
 
     public type MemoryBTree = Migrations.MemoryBTree;
     public type Node = Migrations.Node;

@@ -30,6 +30,7 @@ import Utils "../Utils";
 import Migrations "Migrations";
 import Leaf "modules/Leaf";
 import T "modules/Types";
+
 module {
     type Address = Nat;
     type MemoryRegion = MemoryRegion.MemoryRegion;
@@ -364,27 +365,6 @@ module {
         let value = mem_utils.1.from_blob(val_blob);
         ?value;
     };
-
-    // public func get_block<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : ?MemoryBlock {
-    //     let key_blob = mem_utils.0.to_blob(key);
-
-    //     let leaf_address = Methods.get_leaf_address(btree, mem_utils, key, ?key_blob);
-    //     let count = Leaf.get_count(btree, leaf_address);
-
-    //     let int_index = switch (mem_utils.2) {
-    //         case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, leaf_address, cmp, key, count);
-    //         case (#blob_cmp(cmp)) {
-    //             Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, count);
-    //         };
-    //     };
-
-    //     if (int_index < 0) return null;
-
-    //     let elem_index = Int.abs(int_index);
-
-    //     let ?comp_val = Leaf.get_val(btree, leaf_address, elem_index)else Debug.trap("get: accessed a null value");
-    //     ?(comp_val.0)
-    // };
 
     public func getMin<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
         let leaf_address = Methods.get_min_leaf_address(btree);
@@ -742,6 +722,10 @@ module {
         let key_blob = mem_utils.0.to_blob(key);
         let (leaf_address, index_pos) = Methods.get_leaf_node_and_index(btree, mem_utils, key_blob);
 
+        // Leaf.display(btree, mem_utils, leaf_address);
+        Debug.print("leaf_address: " # debug_show Leaf.from_memory(btree,  leaf_address));
+        Debug.print("index_pos: " # debug_show index_pos);
+        Debug.print("key_blob: " # debug_show key_blob);
         let count = Leaf.get_count(btree, leaf_address);
         let int_index = switch (mem_utils.2) {
             case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, leaf_address, cmp, key, count);
@@ -749,6 +733,8 @@ module {
                 Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, count);
             };
         };
+
+        Debug.print("int_index: " # debug_show int_index);
 
         if (int_index < 0) {
             Debug.trap("getIndex(): key does not exist in the tree. Try using getCeiling() or getFloor() to get the closest key");

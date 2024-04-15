@@ -166,22 +166,25 @@ module {
 
             label get_node_loop while (i >= 1) {
                 let ?child = Branch.get_child(btree, parent, i) else Debug.trap("get_leaf_node_and_index 0: accessed a null value");
-
                 let ?search_key = Branch.get_key_blob(btree, parent, i - 1) else Debug.trap("get_leaf_node_and_index 1: accessed a null value");
 
                 switch (Branch.get_node_type(btree, child)) {
                     case (#branch(_)) {
-
+                        
+                        // Debug.print("branch child: " # debug_show child);
                         switch(mem_utils.2) {
                             case (#cmp(cmp)) {
                                 let ds_key = mem_utils.0.from_blob(key);
                                 let ds_search_key = mem_utils.0.from_blob(search_key);
-                                if (cmp(ds_key, ds_search_key) == +1) {
+                                // Debug.print("(key, search_key, res) -> " # debug_show (key, search_key, cmp(ds_key, ds_search_key)));
+
+                                if (cmp(ds_key, ds_search_key) >= 0) {
                                     return get_node(child, key);
                                 };
                             };
                             case (#blob_cmp(cmp)) {
-                                if (cmp(key, search_key) == +1) {
+                                // Debug.print("(key, search_key, res) -> " # debug_show (key, search_key, cmp(key, search_key)));
+                                if (cmp(key, search_key) >= 0) {
                                     return get_node(child, key);
                                 };
                             };
@@ -190,6 +193,7 @@ module {
                         rank -= Branch.get_subtree_size(btree, child);
                     };
                     case (#leaf(_)) {
+                        // Debug.print("leaf child: " # debug_show child);
                         // subtract before comparison because we want the rank of the first element in the leaf node
                         rank -= Leaf.get_count(btree, child);
 
@@ -197,12 +201,14 @@ module {
                             case (#cmp(cmp)) {
                                 let ds_key = mem_utils.0.from_blob(key);
                                 let ds_search_key = mem_utils.0.from_blob(search_key);
-                                if (cmp(ds_key, ds_search_key) == +1) {
+                                // Debug.print("(key, search_key, res) -> " # debug_show (key, search_key, cmp(ds_key, ds_search_key)));
+                                if (cmp(ds_key, ds_search_key) >= 0) {
                                     return child;
                                 };
                             };
                             case (#blob_cmp(cmp)) {
-                                if (cmp(key, search_key) == +1) {
+                                // Debug.print("(key, search_key, res) -> " # debug_show (key, search_key, cmp(key, search_key)));
+                                if (cmp(key, search_key) >= 0) {
                                     return child;
                                 };
                             };
@@ -215,6 +221,8 @@ module {
             };
 
             let ?first_child = Branch.get_child(btree, parent, 0) else Debug.trap("get_leaf_node_and_index 2: accessed a null value");
+            // Debug.print("first_child: " # debug_show first_child);
+            
             switch (Branch.get_node_type(btree, first_child)) {
                 case (#branch) {
                     return get_node(first_child, key);

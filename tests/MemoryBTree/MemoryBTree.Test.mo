@@ -32,7 +32,7 @@ let fuzz = Fuzz.fromSeed(0xdeadbeef);
 let limit = 10_000;
 
 let nat_gen_iter : Iter<Nat> = {
-    next = func() : ?Nat = ?fuzz.nat.randomRange(1, limit * 100);
+    next = func() : ?Nat = ?fuzz.nat.randomRange(1, limit ** 2);
 };
 let unique_iter = Itertools.unique<Nat>(nat_gen_iter, Nat32.fromNat, Nat.equal);
 let random = Itertools.toBuffer<(Nat, Nat)>(
@@ -139,6 +139,136 @@ suite(
         );
 
         test(
+            "getIndex",
+            func() {
+
+                for (i in Itertools.range(0, sorted.size())) {
+                    let (key, _) = sorted.get(i);
+                    // Debug.print("i = " # debug_show (i));
+
+                    // Debug.print("key: " # debug_show key);
+                    let expected = i;
+                    let rank = MemoryBTree.getIndex(btree, MemoryUtils.Nat, key);
+                    if (not (rank == expected)) {
+                        Debug.print("mismatch for key:" # debug_show key);
+                        Debug.print("expected != rank: " # debug_show (expected, rank));
+                        assert false;
+                    };
+                };
+            },
+        );
+
+        test(
+            "getFromIndex",
+            func() {
+                for (i in Itertools.range(0, sorted.size())) {
+                    let expected = sorted.get(i);
+                    let received = MemoryBTree.getFromIndex(btree, MemoryUtils.Nat, i);
+
+                    if (not ((expected, expected) == received)) {
+                        Debug.print("mismatch at rank:" # debug_show i);
+                        Debug.print("expected != received: " # debug_show ((expected, expected), received));
+                        assert false;
+                    };
+                };
+            },
+        );
+
+        test(
+            "getFloor()",
+            func() {
+
+                for (i in Itertools.range(0, sorted.size())) {
+                    let (key, _) = sorted.get(i);
+
+                    let expected = sorted.get(i);
+                    let received = MemoryBTree.getFloor(btree, MemoryUtils.Nat, key);
+
+                    if (not (?expected == received)) {
+                        Debug.print("mismatch at key:" # debug_show key);
+                        Debug.print("expected != received: " # debug_show (expected, received));
+                        assert false;
+                    };
+
+                    let prev = key - 1;
+
+                    if (i > 0) {
+                        let expected = sorted.get(i - 1);
+                        let received = MemoryBTree.getFloor(btree, MemoryUtils.Nat, prev);
+
+                        if (not (?(expected) == received)) {
+                            Debug.print("mismatch at key:" # debug_show prev);
+                            Debug.print("expected != received: " # debug_show (expected, received));
+                            assert false;
+                        };
+                    } else {
+                        assert MemoryBTree.getFloor(btree, MemoryUtils.Nat, prev) == null;
+                    };
+
+                    let next = key + 1;
+
+                    do {
+                        let expected = sorted.get(i);
+                        let received = MemoryBTree.getFloor(btree, MemoryUtils.Nat, next);
+
+                        if (not (?expected == received)) {
+                            Debug.print("mismatch at key:" # debug_show next);
+                            Debug.print("expected != received: " # debug_show (expected, received));
+                            assert false;
+                        };
+                    };
+
+                };
+            },
+        );
+
+        test(
+            "getCeiling()",
+            func() {
+                for (i in Itertools.range(0, sorted.size())) {
+                    var key = sorted.get(i).0;
+
+                    let expected = sorted.get(i);
+                    let received = MemoryBTree.getCeiling<Nat, Nat>(btree, MemoryUtils.Nat, key);
+
+                    if (not (?expected == received)) {
+                        Debug.print("mismatch at key:" # debug_show key);
+                        Debug.print("expected != received: " # debug_show (expected, received));
+                        assert false;
+                    };
+
+                    let prev = key - 1;
+
+                    do {
+                        let expected = sorted.get(i);
+                        let received = MemoryBTree.getCeiling<Nat, Nat>(btree, MemoryUtils.Nat, prev);
+
+                        if (not (?expected == received)) {
+                            Debug.print("mismatch at key:" # debug_show prev);
+                            Debug.print("expected != received: " # debug_show (expected, received));
+                            assert false;
+                        };
+                    };
+
+                    let next = key + 1;
+
+                    if (i + 1 < sorted.size()) {
+                        let expected = sorted.get(i + 1);
+                        let received = MemoryBTree.getCeiling<Nat, Nat>(btree, MemoryUtils.Nat, next);
+
+                        if (not (?expected == received)) {
+                            Debug.print("mismatch at key:" # debug_show next);
+                            Debug.print("expected != received: " # debug_show (expected, received));
+                            assert false;
+                        };
+                    } else {
+                        assert MemoryBTree.getCeiling<Nat, Nat>(btree, MemoryUtils.Nat, next) == null;
+                    };
+
+                };
+            },
+        );
+        test(
             "entries()",
             func() {
                 var i = 0;
@@ -154,6 +284,67 @@ suite(
 
                 assert Methods.validate_memory(btree, MemoryUtils.Nat);
 
+            },
+        );
+
+        test(
+            "scan",
+            func() {
+                let sliding_tuples = Itertools.range(0, MemoryBTree.size(btree))
+                |> Iter.map<Nat, Nat>(_, func(n : Nat) : Nat = n * 100)
+                |> Itertools.takeWhile(_, func(n : Nat) : Bool = n < MemoryBTree.size(btree))
+                |> Itertools.slidingTuples(_);
+
+                for ((i, j) in sliding_tuples) {
+                    let start_key = sorted.get(i).0;
+                    let end_key = sorted.get(j).0;
+
+                    var index = i;
+
+                    for ((k, v) in MemoryBTree.scan<Nat, Nat>(btree, MemoryUtils.Nat, ?start_key, ?end_key)) {
+                        let expected = sorted.get(index).0;
+
+                        if (not (expected == k)) {
+                            Debug.print("mismatch: " # debug_show (expected, k));
+                            Debug.print("scan " # debug_show Iter.toArray(MemoryBTree.scan(btree, MemoryUtils.Nat, ?start_key, ?end_key)));
+
+                            let expected_vals = Iter.range(i, j)
+                            |> Iter.map<Nat, Nat>(_, func(n : Nat) : Nat = sorted.get(n).1);
+                            Debug.print("expected " # debug_show Iter.toArray(expected_vals));
+                            assert false;
+                        };
+
+                        index += 1;
+                    };
+                };
+            },
+        );
+
+        test(
+            "range",
+            func() {
+                let sliding_tuples = Itertools.range(0, MemoryBTree.size(btree))
+                |> Iter.map<Nat, Nat>(_, func(n : Nat) : Nat = n * 100)
+                |> Itertools.takeWhile(_, func(n : Nat) : Bool = n < MemoryBTree.size(btree))
+                |> Itertools.slidingTuples(_);
+
+                let sorted_array = Buffer.toArray(sorted);
+
+                for ((i, j) in sliding_tuples) {
+
+                    if (
+                        not Itertools.equal<(Nat, Nat)>(
+                            MemoryBTree.range(btree, MemoryUtils.Nat, i, j),
+                            Itertools.fromArraySlice<(Nat, Nat)>(sorted_array, i, j + 1),
+                            func(a : (Nat, Nat), b : (Nat, Nat)) : Bool = a == b,
+                        )
+                    ) {
+                        Debug.print("mismatch: " # debug_show (i, j));
+                        Debug.print("range " # debug_show Iter.toArray(MemoryBTree.range(btree, MemoryUtils.Nat, i, j)));
+                        Debug.print("expected " # debug_show Iter.toArray(Itertools.fromArraySlice(sorted_array, i, j + 1)));
+                        assert false;
+                    };
+                };
             },
         );
 
@@ -190,10 +381,10 @@ suite(
                     assert MemoryBTree.size(btree) == random.size() - i - 1;
                     // Debug.print("node keys: " # debug_show MemoryBTree.toNodeKeys(btree, MemoryUtils.Nat));
                     // Debug.print("leaf nodes: " # debug_show Iter.toArray(MemoryBTree.leafNodes(btree, MemoryUtils.Nat)));
-                
+
                 };
 
-                    assert Methods.validate_memory(btree, MemoryUtils.Nat);
+                assert Methods.validate_memory(btree, MemoryUtils.Nat);
 
             },
 

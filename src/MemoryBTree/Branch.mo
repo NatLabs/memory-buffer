@@ -11,6 +11,7 @@ import Nat64 "mo:base/Nat64";
 import Blob "mo:base/Blob";
 import Order "mo:base/Order";
 import Bool "mo:base/Bool";
+import Float "mo:base/Float";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import LruCache "mo:lru-cache";
@@ -24,6 +25,7 @@ import ArrayMut "ArrayMut";
 import T "Types";
 import Leaf "Leaf";
 import MemoryBlock "MemoryBlock";
+import Migrations "migrations";
 
 module Branch {
 
@@ -32,13 +34,13 @@ module Branch {
     type Blobify<A> = Blobify.Blobify<A>;
     type RevIter<A> = RevIter.RevIter<A>;
     type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
-    type MemoryBTree = T.MemoryBTree;
+    type MemoryBTree = Migrations.MemoryBTree;
     type MemoryBlock = T.MemoryBlock;
-    type Node = T.Node;
+    type Node = Migrations.Node;
     type Address = T.Address;
     type NodeType = T.NodeType;
 
-    public type Branch = T.Branch;
+    public type Branch = Migrations.Branch;
 
     public type MemoryCmp<A> = MemoryCmp.MemoryCmp<A>;
 
@@ -176,88 +178,163 @@ module Branch {
     };
 
     public func from_memory(btree : MemoryBTree, branch_address : Address) : Branch {
-        assert MemoryRegion.loadBlob(btree.metadata, branch_address, MC.MAGIC_SIZE) == MC.MAGIC;
-        assert MemoryRegion.loadNat8(btree.metadata, branch_address + MC.LAYOUT_VERSION_START) == MC.LAYOUT_VERSION;
-        assert MemoryRegion.loadNat8(btree.metadata, branch_address + MC.NODE_TYPE_START) == MC.NODE_TYPE;
+        
+        let branch : Branch = (
+            [var 0, 0, 0, 0],
+            [var null, null, null],
+            Array.init(btree.order, null), // - 1
+            Array.init(btree.order, null),
+            Array.init(btree.order, null),
+            Array.init<?Nat>(btree.order, null),
+            Array.init(btree.order, null),
+        );
 
-        let index = MemoryRegion.loadNat16(btree.metadata, branch_address + MC.INDEX_START) |> Nat16.toNat(_);
-        let count = MemoryRegion.loadNat16(btree.metadata, branch_address + MC.COUNT_START) |> Nat16.toNat(_);
-        let subtree_size = MemoryRegion.loadNat64(btree.metadata, branch_address + MC.SUBTREE_COUNT_START) |> Nat64.toNat(_);
+        from_memory_into(btree, branch_address, branch);
 
-        let parent = do {
-            let p = MemoryRegion.loadNat64(btree.metadata, branch_address + MC.PARENT_START);
+        branch;
+    };
+
+    func from_memory_into(btree: MemoryBTree, address: Address, branch: Branch){
+        assert MemoryRegion.loadBlob(btree.metadata, address, MC.MAGIC_SIZE) == MC.MAGIC;
+        assert MemoryRegion.loadNat8(btree.metadata, address + MC.LAYOUT_VERSION_START) == MC.LAYOUT_VERSION;
+        assert MemoryRegion.loadNat8(btree.metadata, address + MC.NODE_TYPE_START) == MC.NODE_TYPE;
+
+        branch.0 [AC.ADDRESS] := address;
+        branch.0 [AC.INDEX] := MemoryRegion.loadNat16(btree.metadata, address + MC.INDEX_START) |> Nat16.toNat(_);
+        branch.0 [AC.COUNT] := MemoryRegion.loadNat16(btree.metadata, address + MC.COUNT_START) |> Nat16.toNat(_);
+        branch.0 [AC.SUBTREE_SIZE] := MemoryRegion.loadNat64(btree.metadata, address + MC.SUBTREE_COUNT_START) |> Nat64.toNat(_);
+
+        branch.1 [AC.PARENT] := do {
+            let p = MemoryRegion.loadNat64(btree.metadata, address + MC.PARENT_START);
             if (p == MC.NULL_ADDRESS) null else ?Nat64.toNat(p);
         };
 
-        let branch : Branch = (
-            [var branch_address, index, count, subtree_size],
-            [var parent],
-            Array.init(btree.order - 1, null),
-            Array.init<?Nat>(btree.order, null),
-            Array.init(btree.order - 1, null),
-        );
-
         var i = 0;
 
-        label while_loop while (i < (btree.order - 1)) {
-            let key_offset = get_key_offset(branch_address, i);
+        label while_loop while (i + 1 < btree.order) {
+            let key_offset = get_key_offset(address, i);
 
             let key_address = MemoryRegion.loadNat64(btree.metadata, key_offset);
 
-            if (key_address == MC.NULL_ADDRESS) break while_loop;
+            if (key_address == MC.NULL_ADDRESS) {
+                branch.2 [i] := null;
+                branch.6 [i] := null;
+                i += 1;
+                continue while_loop;
+            };
 
             let key_size = MemoryRegion.loadNat16(btree.metadata, key_offset + MC.ADDRESS_SIZE) |> Nat16.toNat(_);
             let key_block = (Nat64.toNat(key_address), key_size);
             let key_blob = MemoryBlock.get_key(btree, key_block);
 
             branch.2 [i] := ?key_block;
-            branch.4 [i] := ?key_blob;
+            branch.6 [i] := ?key_blob;
             i += 1;
         };
+
+        // while (i + 1 < btree.order){
+        //     branch.2 [i] := null;
+        //     branch.6 [i] := null;
+        //     i+=1;
+        // };
 
         i := 0;
 
         label while_loop2 while (i < btree.order) {
-            let child_offset = get_child_offset(btree, branch_address, i);
+            let child_offset = get_child_offset(btree, address, i);
 
             let child_address = MemoryRegion.loadNat64(btree.metadata, child_offset);
 
-            if (child_address == MC.NULL_ADDRESS) break while_loop2;
+            if (child_address == MC.NULL_ADDRESS) {
+                branch.5 [i] := null;
+                i += 1;
+                continue while_loop2;
+            };
 
-            branch.3 [i] := ?Nat64.toNat(child_address);
+            branch.5 [i] := ?Nat64.toNat(child_address);
             i += 1;
         };
 
-        branch;
+        // while (i < btree.order){
+        //     branch.5 [i] := null;
+        //     i+=1;
+        // };
+
+        // i := 0;
+        // while (i < btree.order){
+        //     branch.3 [i] := null;
+        //     branch.4 [i] := null;
+        //     i+=1;
+        // };
+
     };
 
-    public func from_address(btree : MemoryBTree, address : Address, update_cache : Bool) : Branch {
-        let opt_node = if (update_cache) {
-            LruCache.get(btree.nodes_cache, nhash, address);
-        } else {
-            LruCache.peek(btree.nodes_cache, nhash, address);
-        };
+    func calc_heuristic(btree: MemoryBTree): Float {
+        let cache_capacity = Float.fromInt(LruCache.capacity(btree.nodes_cache));
+        let cache_size = Float.fromInt(LruCache.size(btree.nodes_cache));
+        let branch_count = Float.fromInt(btree.branch_count);
+        let leaf_count = Float.fromInt(btree.leaf_count);
+        let nodes_count = (branch_count + leaf_count);
 
-        switch (opt_node) {
-            case (? #branch(branch)) return branch;
-            case (null) {};
-            case (? #leaf(_)) Debug.trap("Branch.from_address(): Expected a branch, got a leaf");
-        };
+        let space_left = cache_capacity - cache_size;
+        let branch_nodes_not_in_cache = branch_count - cache_size;
+        
+        var heuristic : Float = 0;
 
-        let branch = Branch.from_memory(btree, address);
-        if (update_cache) LruCache.put(btree.nodes_cache, nhash, address, #branch(branch));
-        branch;
+        if (space_left == 0) return 1;
+        if (cache_capacity >= branch_count) return 10;
+        if ((cache_capacity * 1.5) >= branch_count) return 2;
+        
+        heuristic := 10 - (((branch_nodes_not_in_cache - space_left / space_left) * 1.5 )) % 8;
+
+        return 10 - heuristic;
     };
 
     public func add_to_cache(btree : MemoryBTree, address : Nat) {
+        if (LruCache.capacity(btree.nodes_cache) == 0) return;
+
         switch (LruCache.get(btree.nodes_cache, nhash, address)) {
             case (? #branch(_)) return;
             case (? #leaf(_)) Debug.trap("Branch.add_to_cache(): Expected a branch, got a leaf");
             case (_) {};
         };
 
-        let branch = Branch.from_memory(btree, address);
+        let heuristic = calc_heuristic(btree);
+        if (Float.fromInt(address % 10) >= heuristic) return;
+
+        let branch : Branch = if (LruCache.size(btree.nodes_cache) == LruCache.capacity(btree.nodes_cache)) {
+            let ?prev_address = LruCache.lastKey(btree.nodes_cache) else Debug.trap("Leaf.add_to_cache: last is null");
+            let ?#leaf(node) or ?#branch(node) = LruCache.peek(btree.nodes_cache, nhash, prev_address) else Debug.trap("Leaf.add_to_cache: leaf is null");
+            from_memory_into(btree, address, node);
+            node;
+        } else {
+             // loads from stable memory and adds to cache
+            Branch.from_memory(btree, address);
+        };
+
+        // let branch = Branch.from_memory(btree, address);
         LruCache.put(btree.nodes_cache, nhash, address, #branch(branch));
+    };
+
+    public func rm_from_cache(btree: MemoryBTree, address: Address){
+        ignore LruCache.remove(btree.nodes_cache, nhash, address);
+    };
+
+    public func display(btree : MemoryBTree, mem_utils: MemoryUtils<Nat, Nat>, branch_address : Nat) {
+        let branch = Branch.from_memory(btree, branch_address);
+
+        Debug.print("Branch -> " # debug_show (
+            branch.0,
+            branch.1,
+            Array.map(Array.freeze(branch.2), func(key_block : ?MemoryBlock) : ?Nat{
+                switch (key_block) {
+                    case (?key_block) ?mem_utils.0.from_blob(MemoryBlock.get_key(btree, key_block));
+                    case (_) null;
+                };
+            }),
+            branch.5,
+            // branch.6
+        ));
     };
 
     public func update_index(btree : MemoryBTree, branch_address : Nat, new_index : Nat) {
@@ -276,7 +353,7 @@ module Branch {
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
             case (? #branch(branch)) {
                 branch.2 [i] := ?key_block;
-                branch.4 [i] := ?key_blob;
+                branch.6 [i] := ?key_blob;
             };
             case (? #leaf(_)) Debug.trap("Branch.put_key(): Expected a branch, got a leaf");
             case (_) {};
@@ -291,13 +368,24 @@ module Branch {
         assert i < btree.order;
 
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
-            case (? #branch(branch)) branch.3 [i] := ?child_address;
+            case (? #branch(branch)) branch.5 [i] := ?child_address;
             case (? #leaf(_)) Debug.trap("Branch.put_child(): Expected a branch, got a leaf");
             case (_) {};
         };
 
         let offset = get_child_offset(btree, branch_address, i);
         MemoryRegion.storeNat64(btree.metadata, offset, Nat64.fromNat(child_address));
+
+        switch(Branch.get_node_type(btree, child_address)) {
+            case (#branch) {
+                Branch.update_parent(btree, child_address, ?branch_address);
+                Branch.update_index(btree, child_address, i);
+            };
+            case (#leaf) {
+                Leaf.update_parent(btree, child_address, ?branch_address);
+                Leaf.update_index(btree, child_address, i);
+            };
+        };
     };
 
     public func get_node_subtree_size(btree : MemoryBTree, node_address : Address) : Nat {
@@ -330,7 +418,7 @@ module Branch {
 
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
             case (? #branch(branch)) {
-                branch.3 [count] := ?child_address;
+                branch.5 [count] := ?child_address;
             };
             case (? #leaf(_)) Debug.trap("Branch.put_child(): Expected a branch, got a leaf");
             case (_) {};
@@ -343,25 +431,6 @@ module Branch {
         let prev_subtree_size = Branch.get_subtree_size(btree, branch_address);
         Branch.update_subtree_size(btree, branch_address, prev_subtree_size + child_subtree_size);
         Branch.update_count(btree, branch_address, count + 1);
-    };
-
-    public func get_node(btree : MemoryBTree, node_address : Nat) : Node {
-        switch (LruCache.get(btree.nodes_cache, nhash, node_address)) {
-            case (?node) return node;
-            case (_) {};
-        };
-
-        assert MemoryRegion.loadBlob(btree.metadata, node_address, MC.MAGIC_SIZE) == MC.MAGIC;
-
-        let node_type = MemoryRegion.loadNat8(btree.metadata, node_address + MC.NODE_TYPE_START);
-
-        let node = if (node_type == Branch.MC.NODE_TYPE) {
-            #branch(Branch.from_address(btree, node_address, true));
-        } else {
-            #leaf(Leaf.from_address(btree, node_address, true));
-        };
-
-        node;
     };
 
     public func get_node_type(btree : MemoryBTree, node_address : Nat) : NodeType {
@@ -384,7 +453,7 @@ module Branch {
     public func get_count(btree : MemoryBTree, branch_address : Nat) : Nat {
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
             case (? #branch(branch)) return branch.0 [AC.COUNT];
-            case (? #leaf(leaf)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
             case (_) {};
         };
 
@@ -394,7 +463,7 @@ module Branch {
     public func get_index(btree : MemoryBTree, branch_address : Nat) : Nat {
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
             case (? #branch(branch)) return branch.0 [AC.INDEX];
-            case (? #leaf(leaf)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
             case (_) {};
         };
 
@@ -404,7 +473,7 @@ module Branch {
     public func get_parent(btree : MemoryBTree, branch_address : Nat) : ?Nat {
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
             case (? #branch(branch)) return branch.1 [AC.PARENT];
-            case (? #leaf(leaf)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
             case (_) {};
         };
 
@@ -415,7 +484,7 @@ module Branch {
     public func get_keys(btree : MemoryBTree, branch_address : Nat) : [var ?(MemoryBlock, Blob)] {
         // switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
         //     case (? #branch(branch)) return branch.2;
-        //     case (? #leaf(leaf)) return leaf.2;
+        //     case (? #leaf(_)) return leaf.2;
         //     case (_) {};
         // };
 
@@ -425,26 +494,36 @@ module Branch {
     };
 
     public func get_key_block(btree : MemoryBTree, branch_address : Nat, i : Nat) : ?MemoryBlock {
+        if (i >= btree.order - 1) return Debug.trap("Branch.get_key_block(): index out of bounds");
+
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
             case (? #branch(branch)) return branch.2 [i];
-            case (? #leaf(leaf)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
             case (_) {};
         };
 
+        assert MemoryRegion.loadBlob(btree.metadata, branch_address, MC.MAGIC_SIZE) == MC.MAGIC;
+        
         let key_offset = get_key_offset(branch_address, i);
         let key_address = MemoryRegion.loadNat64(btree.metadata, key_offset);
         let key_size = MemoryRegion.loadNat16(btree.metadata, key_offset + MC.ADDRESS_SIZE) |> Nat16.toNat(_);
-
-        if (key_address == MC.NULL_ADDRESS) return null;
-
-        let key_block = (Nat64.toNat(key_address), key_size);
-        ?key_block;
+        
+        let key_block = if (key_address == MC.NULL_ADDRESS) null else ?(Nat64.toNat(key_address), key_size);
+        
+        // if (branch.2[i] != key_block and branch.2[i] != ?(0, 0)){
+            // Debug.print("Index -> " # debug_show i);
+            // Debug.print("cache, mem -> " # debug_show (branch.2[i], key_block));
+            // Debug.print("branch " # debug_show branch);
+            // assert false;
+        // };
+        
+        key_block;
     };
 
     public func get_key_blob(btree : MemoryBTree, branch_address : Nat, i : Nat) : ?(Blob) {
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
-            case (? #branch(branch)) return branch.4 [i];
-            case (? #leaf(leaf)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (? #branch(branch)) return branch.6 [i];
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
             case (_) {};
         };
 
@@ -453,10 +532,25 @@ module Branch {
         ?(key_blob);
     };
 
+    public func set_key_block_to_null(btree: MemoryBTree, branch_address: Nat, i: Nat) {
+        switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
+            case (? #branch(branch)) {
+                branch.2[i] := null;
+                branch.6 [i] := null;
+            };
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (_) {};
+        };
+
+        let key_offset = get_key_offset(branch_address, i);
+        MemoryRegion.storeNat64(btree.metadata, key_offset, MC.NULL_ADDRESS);
+        MemoryRegion.storeNat16(btree.metadata, key_offset + MC.ADDRESS_SIZE, Nat16.fromNat(0));
+    };
+
     public func get_child(btree : MemoryBTree, branch_address : Nat, i : Nat) : ?Nat {
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
-            case (? #branch(branch)) return branch.3 [i];
-            case (? #leaf(leaf)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (? #branch(branch)) return branch.5 [i];
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
             case (_) {};
         };
 
@@ -464,14 +558,24 @@ module Branch {
         |> ?Nat64.toNat(_);
     };
 
-    public func get_subtree_size(btree : MemoryBTree, branch_address : Nat) : Nat {
+    public func set_child_to_null(btree: MemoryBTree, branch_address: Nat, i: Nat) {
         switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
-            case (? #branch(branch)) return branch.0 [AC.SUBTREE_SIZE];
-            case (? #leaf(leaf)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (? #branch(branch)) branch.5[i] := null;
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
             case (_) {};
         };
 
-        MemoryRegion.loadNat32(btree.metadata, branch_address + MC.SUBTREE_COUNT_START) |> Nat32.toNat(_);
+        MemoryRegion.storeNat64(btree.metadata, get_child_offset(btree, branch_address, i), MC.NULL_ADDRESS);
+    };
+
+    public func get_subtree_size(btree : MemoryBTree, branch_address : Nat) : Nat {
+        switch (LruCache.peek(btree.nodes_cache, nhash, branch_address)) {
+            case (? #branch(branch)) return branch.0 [AC.SUBTREE_SIZE];
+            case (? #leaf(_)) Debug.trap("Branch.get_child(): Expected a branch, got a leaf");
+            case (_) {};
+        };
+
+        MemoryRegion.loadNat64(btree.metadata, branch_address + MC.SUBTREE_COUNT_START) |> Nat64.toNat(_);
     };
 
     public func binary_search<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, address : Nat, cmp : (K, K) -> Int8, search_key : K, arr_len : Nat) : Int {
@@ -590,7 +694,7 @@ module Branch {
             case (_) {};
         };
 
-        MemoryRegion.storeNat32(btree.metadata, branch_address + MC.SUBTREE_COUNT_START, Nat32.fromNat(new_size));
+        MemoryRegion.storeNat64(btree.metadata, branch_address + MC.SUBTREE_COUNT_START, Nat64.fromNat(new_size));
     };
 
     public func update_parent(btree : MemoryBTree, branch_address : Nat, opt_parent : ?Nat) {
@@ -636,15 +740,15 @@ module Branch {
 
                 while (j > i) {
                     branch.2 [j - 1] := branch.2 [j - 2];
-                    branch.3 [j] := branch.3 [j - 1];
-                    branch.4 [j - 1] := branch.4 [j - 2];
+                    branch.5 [j] := branch.5 [j - 1];
+                    branch.6 [j - 1] := branch.6 [j - 2];
 
                     j -= 1;
                 };
 
                 branch.2 [i - 1] := ?key_block;
-                branch.3 [i] := ?child_address;
-                branch.4 [i - 1] := ?key_blob;
+                branch.5 [i] := ?child_address;
+                branch.6 [i - 1] := ?key_blob;
 
             };
             case (? #leaf(_)) Debug.trap("Branch.insert(): Expected a branch, got a leaf");
@@ -674,17 +778,18 @@ module Branch {
             MemoryRegion.storeNat64(btree.metadata, child_offset, Nat64.fromNat(child_address));
         };
 
+        // Debug.print("updating children index values");
         // update children index values
         var j = count;
 
-        while (j >= i) {
+        label while_loop while (j >= i) {
             // if (j == i) {
             //     branch.2 [j - 1] := ?key;
             //     let #leaf(node) or #branch(node) = child;
-            //     branch.3 [j] := ?node.0 [AC.ADDRESS];
+            //     branch.5 [j] := ?node.0 [AC.ADDRESS];
             // } else {
             //     branch.2 [j - 1] := branch.2 [j - 2];
-            //     branch.3 [j] := branch.3 [j - 1];
+            //     branch.5 [j] := branch.5 [j - 1];
             // };
 
             let ?child_address = Branch.get_child(btree, branch_address, j) else Debug.trap("Branch.insert(): child address is null");
@@ -692,13 +797,15 @@ module Branch {
             switch (Branch.get_node_type(btree, child_address)) {
                 case ((#branch)) {
                     Branch.update_index(btree, child_address, j);
+                    Branch.update_parent(btree, child_address, ?branch_address);
                 };
                 case (#leaf) {
                     Leaf.update_index(btree, child_address, j);
+                    Leaf.update_parent(btree, child_address, ?branch_address);
                 };
             };
 
-            j -= 1;
+            if (j == 0) break while_loop else j -= 1;
         };
 
         Branch.update_count(btree, branch_address, count + 1);
@@ -741,18 +848,22 @@ module Branch {
                 } else {
                     let ?shifted_key_block = Branch.get_key_block(btree, branch_address, j - 1) else Debug.trap("Branch.split: accessed a null value");
                     let ?shifted_key_blob = Branch.get_key_blob(btree, branch_address, j - 1) else Debug.trap("Branch.split: accessed a null value");
+                    
                     Branch.put_key(btree, right_address, i - 1, shifted_key_block, shifted_key_blob);
                 };
 
-                // branch.2 [j - 1] := null;
-                // branch.0 [AC.COUNT] -= 1;
+                Branch.set_key_block_to_null(btree, branch_address, j - 1);
 
+                // branch.0 [AC.COUNT] -= 1;
                 elems_removed_from_left += 1;
 
                 let ?child_address = Branch.get_child(btree, branch_address, j) else Debug.trap("Branch.split: accessed a null value");
+                Branch.set_child_to_null(btree, branch_address, j);
+
                 child_address;
             };
 
+            
             Branch.add_child(btree, right_address, child_node);
             i += 1;
         };
@@ -792,8 +903,8 @@ module Branch {
 
     public func get_larger_neighbour(btree : MemoryBTree, parent_address : Address, index : Nat) : ?Address {
 
-        let ?_neighbour = Branch.get_child(btree, parent_address, index) else Debug.trap("1. get_larger_neighbor: accessed a null value");
-        var neighbour = _neighbour;
+        let ?child = Branch.get_child(btree, parent_address, index) else Debug.trap("1. get_larger_neighbor: accessed a null value");
+        var neighbour = child;
 
         let parent_count = Branch.get_count(btree, parent_address);
 
@@ -806,6 +917,8 @@ module Branch {
             if (index != (parent_count - 1 : Nat)) {
                 let ?right_neighbour = Branch.get_child(btree, parent_address, index + 1) else Debug.trap("2. redistribute_leaf_keys: accessed a null value");
 
+                if (neighbour == child) return ?right_neighbour;
+
                 switch (Branch.get_node_type(btree, right_neighbour)) {
                     case (#branch) if (Branch.get_count(btree, right_neighbour) > Branch.get_count(btree, neighbour)) {
                         return ?right_neighbour;
@@ -817,7 +930,7 @@ module Branch {
             };
         };
 
-        if (Branch.get_child(btree, parent_address, index) == ?neighbour) return null;
+        if (neighbour == child) return null;
 
         return ?neighbour;
     };
@@ -830,55 +943,97 @@ module Branch {
     // can only shift from [1.. n] where n is the number of keys
     // and the addition of the offset to the index must be >= 1
     public func shift(btree : MemoryBTree, branch : Address, start : Nat, end : Nat, offset : Int) {
-        let count = Branch.get_count(btree, branch);
-
         assert start + offset >= 1;
 
         if (offset == 0) return;
+        
+        var i = start;
+
+        // update child indexes to future position after shift
+        while (i < end){
+            let ?child = Branch.get_child(btree, branch, i) else Debug.trap("Branch.shift(): accessed a null value");
+            switch(Branch.get_node_type(btree, child)){
+                case (#branch) {
+                    Branch.update_index(btree, child, Int.abs(i + offset));
+                };
+                case (#leaf) {
+                    Leaf.update_index(btree, child, Int.abs(i + offset));
+                };
+            };
+            i+= 1;   
+        };
 
         switch (LruCache.peek(btree.nodes_cache, nhash, branch)) {
-            case (? #leaf(leaf)) if (offset >= 0) {
+            case (? #branch(branch)) if (offset >= 0) {
+                // Debug.print("offset >= 0");
+                // Debug.print("start, end -> " # debug_show (start, end));
                 var i = end;
                 while (i > start) {
                     let prev = i - 1;
                     let curr = Int.abs(offset + i - 1);
 
-                    leaf.2 [curr - 1] := leaf.2 [prev - 1];
-                    leaf.3 [curr] := leaf.3 [prev];
-                    leaf.4 [curr - 1] := leaf.4 [prev - 1];
+                    branch.5 [curr] := branch.5 [prev];
+
+                    if (prev > 0){
+                        branch.2 [curr - 1] := branch.2 [prev - 1];
+                        branch.6 [curr - 1] := branch.6 [prev - 1];
+                    };
+
+                    i -= 1;
                 };
             } else {
+
                 var i = start;
-                while (i < end) {
+                label while_loop while (i < end) {
                     let curr = Int.abs(offset + i);
 
-                    leaf.2 [curr - 1] := leaf.2 [i - 1];
-                    leaf.3 [curr] := leaf.3 [i];
-                    leaf.4 [curr - 1] := leaf.4 [i - 1];
+                    branch.5 [curr] := branch.5 [i];
+                    branch.5 [i] := null;
 
-                    leaf.2 [i - 1] := null;
-                    leaf.3 [i] := null;
-                    leaf.4 [i - 1] := null;
+                    if ( i == 0 ) {
+                        i += 1;
+                        continue while_loop;
+                    };
+
+                    branch.2 [curr - 1] := branch.2 [i - 1];
+                    branch.6 [curr - 1] := branch.6 [i - 1];
+
+                    branch.2 [i - 1] := null;
+                    branch.6 [i - 1] := null;
 
                     i += 1;
                 };
             };
-            case (? #branch(_)) Debug.trap("Branch.shift(): Expected a leaf, got a branch");
+            case (? #leaf(_)) Debug.trap("Branch.shift(): Expected branch, got a leaf");
             case (_) {};
         };
+        
+        // Debug.print("shifting: " # debug_show (start, end, offset));
 
-        if ( start + offset >= 1) {
+        if (start != 0) {
             let key_offset = get_key_offset(branch, start - 1);
             let key_end_boundary = get_key_offset(branch, end - 1);
 
-            MemoryFns.shift(btree.metadata, key_offset, key_end_boundary, MC.MAX_KEY_SIZE + MC.ADDRESS_SIZE);
+            let _offset = Int.max(offset, 0 - (start - 1));
+
+            MemoryFns.shift(btree.metadata, key_offset, key_end_boundary, offset * (MC.MAX_KEY_SIZE + MC.ADDRESS_SIZE));
+        } else {
+            let key_offset = get_key_offset(branch, start);
+            let key_end_boundary = get_key_offset(branch, end - 1);
+
+            MemoryFns.shift(btree.metadata, key_offset, key_end_boundary, offset * (MC.MAX_KEY_SIZE + MC.ADDRESS_SIZE));
         };
         
         let child_offset = get_child_offset(btree, branch, start);
         let child_end_boundary = get_child_offset(btree, branch, end);
 
-        MemoryFns.shift(btree.metadata, child_offset, child_end_boundary, MC.ADDRESS_SIZE);
+        MemoryFns.shift(btree.metadata, child_offset, child_end_boundary, offset * (MC.ADDRESS_SIZE));
+        
+        // if (offset >= 0){
+            
+        // } else {
 
+        // };
     };
 
     // most branch removes are a result of a merge operation
@@ -888,12 +1043,18 @@ module Branch {
     public func remove(btree: MemoryBTree, branch: Address, index: Nat){
         let count = Branch.get_count(btree, branch);
 
-        Leaf.shift(btree, branch, index + 1, count, - 1);
-        Leaf.update_count(btree, branch, count - 1);
+        Branch.shift(btree, branch, index + 1, count, - 1);
+        Branch.update_count(btree, branch, count - 1);
     };
 
     public func redistribute(btree: MemoryBTree, branch: Address) : Bool {
-        let ?neighbour = Branch.get_larger_neighbour(btree, branch, 0) else return false;
+        let ?parent = Branch.get_parent(btree, branch) else Debug.trap("Branch.redistribute: parent should not be null");
+        let branch_index = Branch.get_index(btree, branch);
+        // Debug.print("redistribute: " # debug_show branch_index);
+        let ?neighbour = Branch.get_larger_neighbour(btree, parent, branch_index) else return false;
+        assert MemoryRegion.loadBlob(btree.metadata, parent, MC.MAGIC_SIZE) == MC.MAGIC;
+
+        let neighbour_index = Branch.get_index(btree, neighbour);
 
         let branch_count = Branch.get_count(btree, branch);
         let neighbour_count = Branch.get_count(btree, neighbour);
@@ -901,18 +1062,17 @@ module Branch {
         let sum_count = branch_count + neighbour_count;
         let min_count_for_both_nodes = btree.order;
 
+        // Debug.print("branch: " # debug_show from_memory(btree, branch));
+        // Debug.print("neighbour: " # debug_show from_memory(btree, neighbour));
+
         if (sum_count < min_count_for_both_nodes) return false;
 
         let data_to_move = (sum_count / 2) - branch_count;
 
-        let ?parent = Branch.get_parent(btree, branch) else return Debug.trap("Branch.redistribute: parent should not be null");
-
         var moved_subtree_size = 0;
 
-        let branch_index = Branch.get_index(btree, branch);
-        let neighbour_index = Branch.get_index(btree, neighbour);
-
         if (neighbour_index < branch_index ){
+            // Debug.print("redistribute: left neighbour");
             // move data from the left neighbour to the right branch    
             let ?_median_key_block = Branch.get_key_block(btree, parent, neighbour_index) else return Debug.trap("Branch.redistribute: median_key_block should not be null");
             let ?_median_key_blob = Branch.get_key_blob(btree, parent, neighbour_index) else return Debug.trap("Branch.redistribute: median_key_blob should not be null");
@@ -925,11 +1085,14 @@ module Branch {
             var i = 0;
             while (i < data_to_move) {
                 let j = neighbour_count - 1 - i;
-
-                let ?key_block = Branch.get_key_block(btree, neighbour, j) else return Debug.trap("Branch.redistribute: key_block should not be null");
-                let ?key_blob = Branch.get_key_blob(btree, neighbour, j) else return Debug.trap("Branch.redistribute: key_blob should not be null");
+                // Debug.print("neighbour: " # debug_show from_memory(btree, neighbour));
+                let ?key_block = Branch.get_key_block(btree, neighbour, j - 1) else return Debug.trap("Branch.redistribute: key_block should not be null");
+                let ?key_blob = Branch.get_key_blob(btree, neighbour, j - 1) else return Debug.trap("Branch.redistribute: key_blob should not be null");
                 let ?child = Branch.get_child(btree, neighbour, j) else return Debug.trap("Branch.redistribute: child should not be null");
                 Branch.remove(btree, neighbour, j);
+
+                // Debug.print("median_key_block: " # debug_show median_key_block);
+                // Debug.print("median_key_blob: " # debug_show median_key_blob);
 
                 let new_index = data_to_move - i - 1;
                 Branch.put_key(btree, branch, new_index, median_key_block, median_key_blob);
@@ -944,9 +1107,13 @@ module Branch {
                 i += 1;
             };
 
+            // Debug.print("parent median_key_block: " # debug_show median_key_block);
+            // Debug.print("parent median_key_blob: " # debug_show median_key_blob);
+
             Branch.put_key(btree, parent, neighbour_index, median_key_block, median_key_blob);
 
         } else {
+            // Debug.print("redistribute: right neighbour");
             // move data from the right neighbour to the left branch
 
             let ?_median_key_block = Branch.get_key_block(btree, parent, branch_index) else return Debug.trap("Branch.redistribute: median_key_block should not be null");
@@ -958,6 +1125,9 @@ module Branch {
             var i = 0;
             while (i < data_to_move) {
                 
+                // Debug.print("median_key_block: " # debug_show median_key_block);
+                // Debug.print("median_key_blob: " # debug_show median_key_blob);
+
                 let ?child = Branch.get_child(btree, neighbour, i) else return Debug.trap("Branch.redistribute: child should not be null");
                 Branch.insert(btree, branch, branch_count + i, median_key_block, median_key_blob, child);
 
@@ -972,6 +1142,9 @@ module Branch {
 
                 i += 1;
             };
+
+            // Debug.print("parent median_key_block: " # debug_show median_key_block);
+            // Debug.print("parent median_key_blob: " # debug_show median_key_blob);
 
             // shift keys and children in the right neighbour
             // since we can't shift to the first child index,
@@ -997,7 +1170,63 @@ module Branch {
         true;
     };
 
-    public func merge(btree: MemoryBTree, branch: Address) {
+    public func deallocate(btree: MemoryBTree, branch: Address) {
+        let memory_size  = Branch.get_memory_size(btree);
+        MemoryRegion.deallocate(btree.metadata, branch, memory_size);
+    };
 
+    public func merge(btree: MemoryBTree, branch: Address, neighbour: Address) : (deallocated_branch: Address) {
+        let ?parent = Branch.get_parent(btree, branch) else Debug.trap("Branch.merge: parent should not be null");
+        let branch_index = Branch.get_index(btree, branch);
+
+        let neighbour_index = Branch.get_index(btree, neighbour);
+
+        let left = if (neighbour_index < branch_index) neighbour else branch;
+        let right = if (neighbour_index < branch_index) branch else neighbour;
+
+        let left_index = if (neighbour_index < branch_index) neighbour_index else branch_index;
+        let right_index = if (neighbour_index < branch_index) branch_index else neighbour_index;
+
+        let left_count  = Branch.get_count(btree, left);
+        let right_count = Branch.get_count(btree, right);
+
+        let left_subtree_size = Branch.get_subtree_size(btree, left);
+        let right_subtree_size = Branch.get_subtree_size(btree, right);
+
+        let ?_median_key_block = Branch.get_key_block(btree, parent, right_index - 1) else Debug.trap("Branch.merge: median_key_block should not be null");
+        let ?_median_key_blob = Branch.get_key_blob(btree, parent, right_index - 1) else Debug.trap("Branch.merge: median_key_blob should not be null");
+        var median_key_block = _median_key_block;
+        var median_key_blob = _median_key_blob;
+
+        // Debug.print("left branch before merge: " # debug_show Branch.from_memory(btree, left));
+        // Debug.print("right branch before merge: " # debug_show Branch.from_memory(btree, right));
+        
+        var i = 0;
+        label while_loop while (i < right_count){
+            // Debug.print("median_key_block: " # debug_show median_key_block);
+            // Debug.print("median_key_blob: " # debug_show median_key_blob);
+            let ?child = Branch.get_child(btree, right, i) else return Debug.trap("Branch.merge: child should not be null");
+            Branch.insert(btree, left, left_count + i, median_key_block, median_key_blob, child);
+
+            if (i < right_count - 1) {
+                let ?key_block = Branch.get_key_block(btree, right, i) else return Debug.trap("Branch.merge: key_block should not be null");
+                let ?key_blob = Branch.get_key_blob(btree, right, i) else return Debug.trap("Branch.merge: key_blob should not be null");
+
+                median_key_block := key_block;
+                median_key_blob := key_blob;
+            };
+
+            i += 1;
+        };  
+
+        Branch.update_count(btree, left, left_count + right_count);
+        Branch.update_subtree_size(btree, left, left_subtree_size + right_subtree_size);
+
+        // Debug.print("left branch after merge: " # debug_show Branch.from_memory(btree, left));
+        // Debug.print("right branch after merge: " # debug_show Branch.from_memory(btree, right));
+        
+        // Branch.remove(btree, parent, right_index);
+
+        right;
     };
 };

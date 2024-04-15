@@ -100,41 +100,6 @@ module {
         };
     };
 
-    public func get_min_leaf(btree : MemoryBTree) : Leaf {
-        var curr = ?Branch.get_node(btree, btree.root);
-
-        loop {
-            switch (curr) {
-                case (? #branch(branch)) {
-                    let ?first_node_address = branch.3[0] else Debug.trap("get_min_leaf: accessed a null value");
-                    curr := ?Branch.get_node(btree, first_node_address);
-                };
-                case (? #leaf(leaf_node)) {
-                    return leaf_node;
-                };
-                case (_) Debug.trap("get_min_leaf_node: accessed a null value");
-            };
-        };
-    };
-
-    public func get_max_leaf(btree : MemoryBTree) : Leaf {
-        var curr = ?Branch.get_node(btree, btree.root);
-
-        loop {
-            switch (curr) {
-                case (? #branch(branch)) {
-                    let last_index = branch.0[Branch.AC.COUNT] - 1;
-                    let ?last_node_address = branch.3[last_index] else Debug.trap("get_max_leaf: accessed a null value");
-                    curr := ?Branch.get_node(btree, last_node_address);
-                };
-                case (? #leaf(leaf_node)) {
-                    return leaf_node;
-                };
-                case (_) Debug.trap("get_max_leaf: accessed a null value");
-            };
-        };
-    };
-
     public func get_max_leaf_address(btree : MemoryBTree) : Nat {
         var curr = btree.root;
 

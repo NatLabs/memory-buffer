@@ -10,7 +10,6 @@ import T "Types";
 module {
     type MemoryRegion = MemoryRegion.MemoryRegion;
     type Order = Order.Order;
-    type MemoryBTree = T.MemoryBTree;
     type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
 
     public func shift(region : MemoryRegion, start : Nat, end : Nat, offset : Int) {

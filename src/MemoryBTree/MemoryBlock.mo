@@ -6,6 +6,7 @@ import LruCache "mo:lru-cache";
 import RevIter "mo:itertools/RevIter";
 
 import MemoryCmp "../MemoryCmp";
+import Migrations "migrations";
 import T "Types";
 
 module MemoryBlock {
@@ -17,8 +18,8 @@ module MemoryBlock {
 
     public type MemoryCmp<A> = MemoryCmp.MemoryCmp<A>;
 
-    public type MemoryBTree = T.MemoryBTree;
-    public type Node = T.Node;
+    public type MemoryBTree = Migrations.MemoryBTree;
+    public type Node = Migrations.Node;
     public type MemoryBlock = T.MemoryBlock;
     public type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
 

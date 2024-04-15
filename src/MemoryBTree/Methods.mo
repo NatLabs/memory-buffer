@@ -28,10 +28,12 @@ import T "Types";
 import Leaf "Leaf";
 import Branch "Branch";
 import MemoryBlock "MemoryBlock";
+import Migrations "migrations";
+import MemoryUtils "MemoryUtils";
 
 module {
-    public type Leaf = T.Leaf;
-    type MemoryBTree = T.MemoryBTree;
+    public type Leaf = Migrations.Leaf;
+    type MemoryBTree = Migrations.MemoryBTree;
     type MemoryBlock = T.MemoryBlock;
 
     type Address = Nat;
@@ -39,14 +41,14 @@ module {
     type LruCache<K, V> = LruCache.LruCache<K, V>;
     type Blobify<A> = Blobify.Blobify<A>;
     type RevIter<A> = RevIter.RevIter<A>;
-    type Node = T.Node;
+    type Node = Migrations.Node;
     public type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
 
-    public type Branch = T.Branch;
+    public type Branch = Migrations.Branch;
 
     public type MemoryCmp<A> = MemoryCmp.MemoryCmp<A>;
 
-    public func get_leaf_address<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K, _opt_key_blob: ?Blob) : Nat {
+    public func get_leaf_address<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K, _opt_key_blob : ?Blob) : Nat {
         var curr_address = btree.root;
         var opt_key_blob : ?Blob = _opt_key_blob;
 
@@ -54,7 +56,7 @@ module {
             switch (Branch.get_node_type(btree, curr_address)) {
                 case (#leaf) {
                     Leaf.add_to_cache(btree, curr_address);
-                    return curr_address
+                    return curr_address;
                 };
                 case (#branch) {
                     // load breanch from stable memory
@@ -62,16 +64,16 @@ module {
                     Branch.add_to_cache(btree, curr_address);
 
                     let count = Branch.get_count(btree, curr_address);
-                    
+
                     let int_index = switch (mem_utils.2) {
                         case (#cmp(cmp)) Branch.binary_search<K, V>(btree, mem_utils, curr_address, cmp, key, count - 1);
                         case (#blob_cmp(cmp)) {
 
-                            let key_blob = switch(opt_key_blob){
+                            let key_blob = switch (opt_key_blob) {
                                 case (null) {
                                     let key_blob = mem_utils.0.to_blob(key);
                                     opt_key_blob := ?key_blob;
-                                    key_blob
+                                    key_blob;
                                 };
                                 case (?key_blob) key_blob;
                             };
@@ -98,41 +100,6 @@ module {
                     curr := first_child;
                 };
                 case (#leaf) return curr;
-            };
-        };
-    };
-
-    public func get_min_leaf(btree : MemoryBTree) : Leaf {
-        var curr = ?Branch.get_node(btree, btree.root);
-
-        loop {
-            switch (curr) {
-                case (? #branch(branch)) {
-                    let ?first_node_address = branch.3[0] else Debug.trap("get_min_leaf: accessed a null value");
-                    curr := ?Branch.get_node(btree, first_node_address);
-                };
-                case (? #leaf(leaf_node)) {
-                    return leaf_node;
-                };
-                case (_) Debug.trap("get_min_leaf_node: accessed a null value");
-            };
-        };
-    };
-
-    public func get_max_leaf(btree : MemoryBTree) : Leaf {
-        var curr = ?Branch.get_node(btree, btree.root);
-
-        loop {
-            switch (curr) {
-                case (? #branch(branch)) {
-                    let last_index = branch.0[Branch.AC.COUNT] - 1;
-                    let ?last_node_address = branch.3[last_index] else Debug.trap("get_max_leaf: accessed a null value");
-                    curr := ?Branch.get_node(btree, last_node_address);
-                };
-                case (? #leaf(leaf_node)) {
-                    return leaf_node;
-                };
-                case (_) Debug.trap("get_max_leaf: accessed a null value");
             };
         };
     };
@@ -186,61 +153,134 @@ module {
         };
     };
 
-    // // Returns the leaf node and rank of the first element in the leaf node
-    // public func get_leaf_node_and_index<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : (Leaf, Nat) {
-    //     let root_node = Branch.get_node(btree, btree.root);
+    // Returns the leaf node and rank of the first element in the leaf node
+    public func get_leaf_node_and_index<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : Blob) : (Address, Nat) {
+        let node_type = Branch.get_node_type(btree, btree.root);
 
-    //     let branch = switch (root_node) {
-    //         case (#branch(node)) node;
-    //         case (#leaf(leaf)) return (leaf, leaf.0[Leaf.AC.COUNT]);
-    //     };
+        let branch = switch (node_type) {
+            case (#branch(_)) btree.root;
+            case (#leaf(_)) return (btree.root, 0);
+        };
 
-    //     var rank = branch.0[Branch.AC.SUBTREE_SIZE];
+        var rank = Branch.get_subtree_size(btree, branch);
 
-    //     func get_node(parent : Branch, key : K) : Leaf {
-    //         var i = parent.0[Branch.AC.COUNT] - 1 : Nat;
+        func get_node(parent : Address, key : Blob) : Address {
+            let parent_count = Branch.get_count(btree, parent);
+            var i = parent_count - 1 : Nat;
 
-    //         label get_node_loop while (i >= 1) {
-    //             let child = parent.3[i];
+            label get_node_loop while (i >= 1) {
+                let ?child = Branch.get_child(btree, parent, i) else Debug.trap("get_leaf_node_and_index 0: accessed a null value");
 
-    //             let ?search_key = parent.2[i - 1] else Debug.trap("get_leaf_node_and_index 1: accessed a null value");
+                let ?search_key = Branch.get_key_blob(btree, parent, i - 1) else Debug.trap("get_leaf_node_and_index 1: accessed a null value");
 
-    //             switch (child) {
-    //                 case (? #branch(node)) {
-    //                     if (cmp(key, search_key) == +1) {
-    //                         return get_node(node, key);
-    //                     };
+                switch (Branch.get_node_type(btree, child)) {
+                    case (#branch(_)) {
 
-    //                     rank -= node.0[Branch.AC.SUBTREE_SIZE];
-    //                 };
-    //                 case (? #leaf(node)) {
-    //                     // subtract before comparison because we want the rank of the first element in the leaf node
-    //                     rank -= node.0[Leaf.AC.COUNT];
+                        switch(mem_utils.2) {
+                            case (#cmp(cmp)) {
+                                let ds_key = mem_utils.0.from_blob(key);
+                                let ds_search_key = mem_utils.0.from_blob(search_key);
+                                if (cmp(ds_key, ds_search_key) == +1) {
+                                    return get_node(child, key);
+                                };
+                            };
+                            case (#blob_cmp(cmp)) {
+                                if (cmp(key, search_key) == +1) {
+                                    return get_node(child, key);
+                                };
+                            };
+                        };
 
-    //                     if (cmp(key, search_key) == +1) {
-    //                         return node;
-    //                     };
-    //                 };
-    //                 case (_) Debug.trap("get_leaf_node_and_index 2: accessed a null value");
-    //             };
+                        rank -= Branch.get_subtree_size(btree, child);
+                    };
+                    case (#leaf(_)) {
+                        // subtract before comparison because we want the rank of the first element in the leaf node
+                        rank -= Leaf.get_count(btree, child);
 
-    //             i -= 1;
-    //         };
+                        switch(mem_utils.2) {
+                            case (#cmp(cmp)) {
+                                let ds_key = mem_utils.0.from_blob(key);
+                                let ds_search_key = mem_utils.0.from_blob(search_key);
+                                if (cmp(ds_key, ds_search_key) == +1) {
+                                    return child;
+                                };
+                            };
+                            case (#blob_cmp(cmp)) {
+                                if (cmp(key, search_key) == +1) {
+                                    return child;
+                                };
+                            };
+                        };
 
-    //         switch (parent.3[0]) {
-    //             case (?#branch(node)) {
-    //                 return get_node(node, key);
-    //             };
-    //             case (? #leaf(node)) {
-    //                 rank -= node.0[Leaf.AC.COUNT];
-    //                 return node;
-    //             };
-    //             case (_) Debug.trap("get_leaf_node_and_index 3: accessed a null value");
-    //         };
-    //     };
+                    };
+                };
 
-    //     (get_node(branch, key), rank);
-    // };
+                i -= 1;
+            };
+
+            let ?first_child = Branch.get_child(btree, parent, 0) else Debug.trap("get_leaf_node_and_index 2: accessed a null value");
+            switch (Branch.get_node_type(btree, first_child)) {
+                case (#branch) {
+                    return get_node(first_child, key);
+                };
+                case ( #leaf) {
+                    rank -= Leaf.get_count(btree, first_child);
+                    return first_child;
+                };
+            };
+        };
+
+        (get_node(branch, key), rank);
+    };
+
+    public func get_leaf_node_by_index<K, V>(btree : MemoryBTree, rank : Nat) : (Address, Nat) {
+        let root = switch (Branch.get_node_type(btree, btree.root)) {
+            case (#branch) btree.root;
+            case (#leaf(_)) return (btree.root, rank);
+        };
+
+        var search_index = rank;
+
+        func get_node(parent : Address) : Address {
+            var i = Branch.get_count(btree, parent) - 1 : Nat;
+            var curr = ?parent;
+            var child_index = Branch.get_subtree_size(btree, parent);
+
+            label get_node_loop loop {
+                let ?child = Branch.get_child(btree, parent, i) else Debug.trap("get_leaf_node_by_index 0: accessed a null value");
+
+                switch (Branch.get_node_type(btree, child)) {
+                    case (#branch) {
+                        let subtree = Branch.get_subtree_size(btree, child);
+
+                        child_index -= subtree;
+                        if (child_index <= search_index) {
+                            search_index -= child_index;
+                            return get_node(child);
+                        };
+
+                    };
+                    case (#leaf) {
+                        let subtree = Leaf.get_count(btree, child);
+                        child_index -= subtree;
+
+                        if (child_index <= search_index) {
+                            search_index -= child_index;
+                            return child;
+                        };
+
+                    };
+                };
+
+                i -= 1;
+            };
+
+            Debug.trap("get_leaf_node_by_index 3: reached unreachable code");
+        };
+
+        (get_node(root), search_index);
+    };
+
 
     public func new_blobs_iterator(
         btree : MemoryBTree,
@@ -267,7 +307,7 @@ module {
             };
 
             if (i >= start_count) {
-                switch(Leaf.get_next(btree, start)){
+                switch (Leaf.get_next(btree, start)) {
                     case (null) {
                         terminate := true;
                     };
@@ -293,7 +333,7 @@ module {
             if (start == end and i >= j) return null;
 
             if (j == 0) {
-                switch(Leaf.get_prev(btree, end)){
+                switch (Leaf.get_prev(btree, end)) {
                     case (null) terminate := true;
                     case (?prev_address) {
                         end := prev_address;
@@ -322,34 +362,38 @@ module {
         new_blobs_iterator(btree, min_leaf, 0, max_leaf, max_leaf_count);
     };
 
+    public func deserialize_kv_blobs<K, V>(mem_utils : MemoryUtils<K, V>, key_blob : Blob, val_blob : Blob) : (K, V) {
+        let key = mem_utils.0.from_blob(key_blob);
+        let value = mem_utils.1.from_blob(val_blob);
+        (key, value);
+    };
+
     public func entries<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(K, V)> {
         RevIter.map<(Blob, Blob), (K, V)>(
             blocks(btree),
-            func((key_blob, val_blob): (Blob, Blob)) : (K, V) {
-                let key = mem_utils.0.from_blob(key_blob);
-                let value = mem_utils.1.from_blob(val_blob);
-                (key, value);
-            }
+            func((key_blob, val_blob) : (Blob, Blob)) : (K, V) {
+                deserialize_kv_blobs(mem_utils, key_blob, val_blob)
+            },
         );
     };
 
     public func keys<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(K)> {
         RevIter.map<(Blob, Blob), (K)>(
             blocks(btree),
-            func((key_blob, _): (Blob, Blob)) : (K) {
+            func((key_blob, _) : (Blob, Blob)) : (K) {
                 let key = mem_utils.0.from_blob(key_blob);
                 key;
-            }
+            },
         );
     };
 
     public func vals<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(V)> {
         RevIter.map<(Blob, Blob), V>(
             blocks(btree),
-            func((_, val_blob): (Blob, Blob)) : V {
+            func((_, val_blob) : (Blob, Blob)) : V {
                 let value = mem_utils.1.from_blob(val_blob);
                 value;
-            }
+            },
         );
     };
 
@@ -371,7 +415,7 @@ module {
 
             let curr = start;
 
-            switch(Leaf.get_next(btree, start)){
+            switch (Leaf.get_next(btree, start)) {
                 case (null) terminate := true;
                 case (?next_address) start := next_address;
             };
@@ -386,7 +430,7 @@ module {
 
             let curr = end;
 
-            switch(Leaf.get_prev(btree, end)){
+            switch (Leaf.get_prev(btree, end)) {
                 case (null) terminate := true;
                 case (?prev_address) end := prev_address;
             };
@@ -397,86 +441,143 @@ module {
         RevIter.new(next, nextFromEnd);
     };
 
-    public func leaf_nodes<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : RevIter<[?(K, V)]> {
+    public func leaf_addresses(btree : MemoryBTree) : RevIter<Nat> {
+        let min_leaf = get_min_leaf_address(btree);
+        let max_leaf = get_max_leaf_address(btree);
+
+        new_leaf_address_iterator(btree, min_leaf, max_leaf);
+    };
+
+    public func leaf_nodes<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<[?(K, V)]> {
         let min_leaf = get_min_leaf_address(btree);
         let max_leaf = get_max_leaf_address(btree);
 
         RevIter.map<Nat, [?(K, V)]>(
             new_leaf_address_iterator(btree, min_leaf, max_leaf),
-            func(leaf_address: Nat) : [?(K, V)] {
-                let leaf = Leaf.from_address(btree, leaf_address, false);
-
+            func(leaf_address : Nat) : [?(K, V)] {
+                
+                let count = Leaf.get_count(btree, leaf_address);
                 Array.tabulate<?(K, V)>(
                     btree.order,
-                    func (i: Nat) : ?(K, V) {
-                        if (i >= leaf.0[Leaf.AC.COUNT]) return null;
+                    func(i : Nat) : ?(K, V) {
+                        if (i >= count) return null;
 
-                        let ?(key, val) = leaf.4[i] else Debug.trap("leaf_nodes: accessed a null value");
+                        let ?(key, val) = Leaf.get_kv_blobs(btree, leaf_address, i) else Debug.trap("leaf_nodes: accessed a null value");
                         ?(mem_utils.0.from_blob(key), mem_utils.1.from_blob(val));
-                    }
+                    },
                 );
-            }
+            },
         );
     };
 
-    public func node_keys<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : [[(Nat, [?K])]]{
+    public func node_keys<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : [[(Nat, [?K])]] {
         var nodes = BufferDeque.fromArray<Address>([btree.root]);
         var buffer = Buffer.Buffer<[(Nat, [?K])]>(btree.branch_count);
 
-        while (nodes.size() > 0){
-            let row = Buffer.Buffer<(Nat, [?K])>(nodes.size()); 
+        while (nodes.size() > 0) {
+            let row = Buffer.Buffer<(Nat, [?K])>(nodes.size());
 
-            for (_ in Iter.range(1, nodes.size())){
+            for (_ in Iter.range(1, nodes.size())) {
                 let ?node = nodes.popFront() else Debug.trap("node_keys: accessed a null value");
 
-                switch(Branch.get_node_type(btree, node)){
-                    case (#leaf) { };
+                switch (Branch.get_node_type(btree, node)) {
+                    case (#leaf) {};
                     case (#branch) {
-                        let branch = Branch.from_address(btree, node, false);
-
                         let keys = Array.tabulate<?K>(
-                            branch.0[Branch.AC.COUNT] - 1,
-                            func(i: Nat) : ?K {
-                                switch(branch.4[i]){
+                            btree.order - 1,
+                            func(i : Nat) : ?K {
+                                switch (Branch.get_key_blob(btree, node, i)) {
                                     case (?key_blob) {
                                         let key = mem_utils.0.from_blob(key_blob);
                                         return ?key;
                                     };
                                     case (_) return null;
                                 };
-                            }
+                            },
                         );
 
                         row.add((node, keys));
 
-                        for (i in Iter.range(0, branch.0[Branch.AC.COUNT] - 1)){
-                            let ?child = branch.3[i] else Debug.trap("node_keys: accessed a null value");
+                        for (i in Iter.range(0, Branch.get_count(btree, node) - 1)) {
+                            let ?child = Branch.get_child(btree, node, i) else Debug.trap("node_keys: accessed a null value");
                             nodes.addBack(child);
                         };
+
                     };
+
                 };
             };
+
+            buffer.add(Buffer.toArray(row));
+
         };
 
         Buffer.toArray(buffer);
     };
 
-    public func validate_memory(btree : MemoryBTree) : Bool {
-        LruCache.clear(btree.nodes_cache);
+    public func validate_memory(btree : MemoryBTree, mem_utils : MemoryUtils<Nat, Nat >) : Bool {
+        // LruCache.clear(btree.nodes_cache);
 
-        func _validate(address: Nat): (index: Nat, subtree_size: Nat) {
+        func _validate(address : Nat) : (index : Nat, subtree_size : Nat) {
             assert MemoryRegion.loadBlob(btree.metadata, address, Leaf.MAGIC_SIZE) == Leaf.MAGIC;
 
-            switch(Branch.get_node_type(btree, address)){
+            switch (Branch.get_node_type(btree, address)) {
                 case (#leaf) {
+                    let leaf = Leaf.from_memory(btree, address);
+
                     let index = Leaf.get_index(btree, address);
                     let count = Leaf.get_count(btree, address);
 
+                    assert index == leaf.0[Leaf.AC.INDEX];
+                    assert count == leaf.0[Leaf.AC.COUNT];
+                    assert address == leaf.0[Leaf.AC.ADDRESS];
+
                     var i = 0;
 
-                    while (i < count){
-                        let ?key = Leaf.get_key_block(btree, address, i) else Debug.trap("validate: accessed a null value");
-                        let ?val = Leaf.get_val_block(btree, address, i) else Debug.trap("validate: accessed a null value");
+                    var prev_key : ?Blob = null;
+                    while (i < count) {
+                        let ?key_block = Leaf.get_key_block(btree, address, i) else Debug.trap("validate: accessed a null value");
+                        let ?val_block = Leaf.get_val_block(btree, address, i) else Debug.trap("validate: accessed a null value");
+                        let ?key = Leaf.get_key_blob(btree, address, i) else Debug.trap("validate: accessed a null value");
+                        let ?val = Leaf.get_val_blob(btree, address, i) else Debug.trap("validate: accessed a null value");
+
+                        assert leaf.2[i] == ?key_block;
+                        assert leaf.3[i] == ?val_block;
+                        assert leaf.4[i] == ?(key, val);
+
+                        switch (prev_key) {
+                            case (null) {};
+                            case (?prev) {
+                                switch (mem_utils.2) {
+                                    case (#cmp(cmp)) {
+                                        let _prev = mem_utils.0.from_blob(prev);
+                                        let _key = mem_utils.0.from_blob(key);
+                                        // Debug.print("l (prev, key): " # debug_show (_prev, _key));
+
+                                        if (cmp(_prev, _key) != -1) {
+                                            Debug.print("key mismatch at index: " # debug_show i);
+                                            Debug.print("prev: " # debug_show prev);
+                                            Debug.print("key: " # debug_show key);
+                                            Leaf.display(btree, mem_utils, address);
+
+                                            assert false;
+                                        };
+                                    };
+                                    case (#blob_cmp(cmp)) {
+                                        if (cmp(prev, key) != -1) {
+                                            Debug.print("key mismatch at index: " # debug_show i);
+                                            Debug.print("prev: " # debug_show prev);
+                                            Debug.print("key: " # debug_show key);
+                                            Leaf.display(btree, mem_utils, address);
+
+                                            assert false;
+                                        };
+                                    };
+                                };
+                            };
+                        };
+
+                        prev_key := ?key;
 
                         i += 1;
                     };
@@ -485,18 +586,64 @@ module {
                     (index, count);
                 };
                 case (#branch) {
+                    let branch = Branch.from_memory(btree, address);
+
                     let index = Branch.get_index(btree, address);
                     let count = Branch.get_count(btree, address);
                     let subtree_size = Branch.get_subtree_size(btree, address);
                     var children_subtree = 0;
 
+                    assert index == branch.0[Branch.AC.INDEX];
+                    assert count == branch.0[Branch.AC.COUNT];
+                    assert address == branch.0[Branch.AC.ADDRESS];
+                    assert subtree_size == branch.0[Branch.AC.SUBTREE_SIZE];
+                    
                     var i = 0;
 
-                    while (i < count){
+                    var prev_key : ?Blob = null;
+
+                    while (i < count) {
+                        if (i + 1 < count) {
+                            let ?key = Branch.get_key_blob(btree, address, i) else Debug.trap("validate: accessed a null value");
+                            assert ?key == branch.6[i];
+
+                            switch (prev_key) {
+                                case (null) {};
+                                case (?prev) {
+                                    switch (mem_utils.2) {
+                                        case (#cmp(cmp)) {
+                                            let _prev = mem_utils.0.from_blob(prev);
+                                            let _key = mem_utils.0.from_blob(key);
+                                            // Debug.print("b (prev, key): " # debug_show (_prev, _key));
+                                            if (cmp(_prev, _key) != -1) {
+                                                Debug.print("key mismatch at index: " # debug_show i);
+                                                Debug.print("prev: " # debug_show prev);
+                                                Debug.print("key: " # debug_show key);
+                                                Branch.display(btree, mem_utils, address);
+                                                assert false;
+                                            };
+                                        };
+                                        case (#blob_cmp(cmp)) {
+                                            if (cmp(prev, key) != -1) {
+                                                Debug.print("key mismatch at index: " # debug_show i);
+                                                Debug.print("prev: " # debug_show prev);
+                                                Debug.print("key: " # debug_show key);
+                                                Branch.display(btree,  mem_utils, address);
+
+                                                assert false;
+                                            };
+                                        };
+                                    };
+                                };
+                            };
+
+                            prev_key := ?key;
+                        };
+
                         let ?child = Branch.get_child(btree, address, i) else Debug.trap("validate: accessed a null value");
+                        // Debug.print("address: " # debug_show address # " -> child: " # debug_show child);
                         let (child_index, child_subtree_size) = _validate(child);
 
-                        
                         assert child_index == i;
                         children_subtree += child_subtree_size;
 
@@ -504,7 +651,11 @@ module {
                     };
 
                     assert i == count;
-                    assert children_subtree == subtree_size;
+                    if (children_subtree != subtree_size) {
+                        Debug.print("children_subtree: " # debug_show children_subtree);
+                        Debug.print("branch subtree_size: " # debug_show subtree_size);
+                        assert false;
+                    };
 
                     (index, subtree_size);
                 };
@@ -512,10 +663,9 @@ module {
         };
 
         let response = _validate(btree.root);
-        Debug.print("Validate respoinse: " # debug_show response);  
-        Debug.print("expected response: " # debug_show (0, Branch.get_node_subtree_size(btree, btree.root)));
+        // Debug.print("Validate response: " # debug_show response);
+        // Debug.print("expected response: " # debug_show (0, Branch.get_node_subtree_size(btree, btree.root)));
         response == (0, Branch.get_node_subtree_size(btree, btree.root));
     };
 
-    
-}
+};

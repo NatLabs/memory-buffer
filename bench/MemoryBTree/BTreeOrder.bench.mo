@@ -1,8 +1,5 @@
-import Array "mo:base/Array";
 import Iter "mo:base/Iter";
 import Debug "mo:base/Debug";
-import Prelude "mo:base/Prelude";
-import RbTree "mo:base/RBTree";
 import Nat "mo:base/Nat";
 import Nat64 "mo:base/Nat64";
 import Region "mo:base/Region";
@@ -11,7 +8,6 @@ import Text "mo:base/Text";
 
 import Bench "mo:bench";
 import Fuzz "mo:fuzz";
-import Map "mo:map/Map";
 import MotokoStableBTree "mo:MotokoStableBTree/BTree";
 import BTreeMap "mo:MotokoStableBTree/modules/btreemap";
 import BTreeMapMemory "mo:MotokoStableBTree/modules/memory";
@@ -19,7 +15,7 @@ import BTreeMapMemory "mo:MotokoStableBTree/modules/memory";
 import { BpTree; Cmp } "mo:augmented-btrees";
 
 import MemoryBTree "../../src/MemoryBTree/Base";
-import MemoryUtils "../../src/MemoryBTree/MemoryUtils";
+import BTreeUtils "../../src/MemoryBTree/BTreeUtils";
 import MemoryCmp "../../src/MemoryCmp";
 import Blobify "../../src/Blobify";
 
@@ -59,12 +55,15 @@ module {
         bench.rows([
             "B+Tree",
             "MotokoStableBTree",
-            "Memory B+Tree (no cache)",
-            "Memory B+Tree (1% cache)",
-            "Memory B+Tree (10% cache)",
-            "Memory B+Tree (50% cache)",
-            "Memory B+Tree (100% cache)",
-
+            "Memory B+Tree (order 4)",
+            "Memory B+Tree (order 32)",
+            "Memory B+Tree (order 64)",
+            "Memory B+Tree (order 128)",
+            "Memory B+Tree (order 256)",
+            "Memory B+Tree (order 512)",
+            "Memory B+Tree (order 1024)",
+            "Memory B+Tree (order 2048)",
+            "Memory B+Tree (order 4096)",
         ]);
         bench.cols([
             "insert()",
@@ -79,21 +78,25 @@ module {
 
         let { n64conv; tconv } = MotokoStableBTree;
 
-        let tconv_20 = tconv(20);
+        let tconv_10 = tconv(10);
 
         let bptree = BpTree.new<Text, Text>(?32);
-        let stable_btree = BTreeMap.new<Text, Text>(BTreeMapMemory.RegionMemory(Region.new()), tconv_20, tconv_20);
-        let mem_btree_no_cache = MemoryBTree.new(?32, ?0);
-        let mem_btree_1_percent = MemoryBTree.new(?32, ?5);
-        let mem_btree_10_percent = MemoryBTree.new(?32, ?50);
-        let mem_btree_50_percent = MemoryBTree.new(?32, ?250);
-        let mem_btree = MemoryBTree.new(?32, ?500);
+        let stable_btree = BTreeMap.new<Text, Text>(BTreeMapMemory.RegionMemory(Region.new()), tconv_10, tconv_10);
+        let mem_btree_order_4 = MemoryBTree.new(?4);
+        let mem_btree_order_32 = MemoryBTree.new(?32);
+        let mem_btree_order_64 = MemoryBTree.new(?64);
+        let mem_btree_order_128 = MemoryBTree.new(?128);
+        let mem_btree_order_256 = MemoryBTree.new(?256);
+        let mem_btree_order_512 = MemoryBTree.new(?512);
+        let mem_btree_order_1024 = MemoryBTree.new(?1024);
+        let mem_btree_order_2048 = MemoryBTree.new(?2048);
+        let mem_btree_order_4096 = MemoryBTree.new(?4096);
 
         let entries = Buffer.Buffer<(Text, Text)>(limit);
         // let replacements = Buffer.Buffer<(Text, Text)>(limit);
 
         for (i in Iter.range(0, limit - 1)) {
-            let key = fuzz.text.randomAlphabetic(3);
+            let key = fuzz.text.randomAlphabetic(10);
 
             entries.add((key, key));
 
@@ -105,33 +108,35 @@ module {
         let sorted = Buffer.clone(entries);
         sorted.sort(func(a, b) = Text.compare(a.0, b.0));
 
-        func run_bench(name : Text, category : Text, mem_btree : MemoryBTree) {
+        let btree_utils = BTreeUtils.createUtils(BTreeUtils.Text, BTreeUtils.Text);
+
+        func run_bench(name : Text, category : Text, mem_btree_order_512 : MemoryBTree) {
             switch (category) {
                 case ("insert()") {
                     for ((key, val) in entries.vals()) {
-                        ignore MemoryBTree.insert<Text, Text>(mem_btree, MemoryUtils.Text, key, val);
+                        ignore MemoryBTree.insert<Text, Text>(mem_btree_order_512, btree_utils, key, val);
                     };
                 };
                 case ("replace()") {
                     for ((key, val) in entries.vals()) {
-                        ignore MemoryBTree.insert(mem_btree, MemoryUtils.Text, key, val);
+                        ignore MemoryBTree.insert(mem_btree_order_512, btree_utils, key, val);
                     };
                 };
                 case ("get()") {
                     for (i in Iter.range(0, limit - 1)) {
                         let (key, val) = entries.get(i);
-                        assert ?val == MemoryBTree.get(mem_btree, MemoryUtils.Text, key);
+                        assert ?val == MemoryBTree.get(mem_btree_order_512, btree_utils, key);
                     };
                 };
                 case ("entries()") {
-                    for (kv in MemoryBTree.entries(mem_btree, MemoryUtils.Text)) {
+                    for (kv in MemoryBTree.entries(mem_btree_order_512, btree_utils)) {
                         ignore kv;
                     };
                 };
                 case ("scan()") {};
                 case ("remove()") {
                     for ((k, v) in entries.vals()) {
-                        ignore MemoryBTree.remove(mem_btree, MemoryUtils.Text, k);
+                        ignore MemoryBTree.remove(mem_btree_order_512, btree_utils, k);
                     };
                 };
                 case (_) {
@@ -183,23 +188,23 @@ module {
 
                 case ("MotokoStableBTree", "insert()") {
                     for ((key, val) in entries.vals()) {
-                        ignore stable_btree.insert(key, tconv_20, val, tconv_20);
+                        ignore stable_btree.insert(key, tconv_10, val, tconv_10);
                     };
                 };
                 case ("MotokoStableBTree", "replace()") {
                     for ((key, val) in entries.vals()) {
-                        ignore stable_btree.insert(key, tconv_20, val, tconv_20);
+                        ignore stable_btree.insert(key, tconv_10, val, tconv_10);
                     };
                 };
                 case ("MotokoStableBTree", "get()") {
                     for (i in Iter.range(0, limit - 1)) {
                         let (key, val) = entries.get(i);
-                        ignore stable_btree.get(key, tconv_20, tconv_20);
+                        ignore stable_btree.get(key, tconv_10, tconv_10);
                     };
                 };
                 case ("MotokoStableBTree", "entries()") {
                     var i = 0;
-                    for (kv in stable_btree.iter(tconv_20, tconv_20)) {
+                    for (kv in stable_btree.iter(tconv_10, tconv_10)) {
                         i += 1;
                     };
 
@@ -209,24 +214,36 @@ module {
                 case ("MotokoStableBTree", "scan()") {};
                 case ("MotokoStableBTree", "remove()") {
                     for ((k, v) in entries.vals()) {
-                        ignore stable_btree.remove(k, tconv_20, tconv_20);
+                        ignore stable_btree.remove(k, tconv_10, tconv_10);
                     };
                 };
 
-                case ("Memory B+Tree (no cache)", category) {
-                    run_bench("Memory B+Tree", category, mem_btree_no_cache);
+                case ("Memory B+Tree (order 4)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_4);
                 };
-                case ("Memory B+Tree (1% cache)", category) {
-                    run_bench("Memory B+Tree", category, mem_btree_1_percent);
+                case ("Memory B+Tree (order 32)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_32);
                 };
-                case ("Memory B+Tree (10% cache)", category) {
-                    run_bench("Memory B+Tree", category, mem_btree_10_percent);
+                case ("Memory B+Tree (order 64)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_64);
                 };
-                case ("Memory B+Tree (50% cache)", category) {
-                    run_bench("Memory B+Tree", category, mem_btree_50_percent);
+                case ("Memory B+Tree (order 128)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_128);
                 };
-                case ("Memory B+Tree (100% cache)", category) {
-                    run_bench("Memory B+Tree", category, mem_btree);
+                case ("Memory B+Tree (order 256)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_256);
+                };
+                case ("Memory B+Tree (order 512)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_512);
+                };
+                case ("Memory B+Tree (order 1024)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_1024);
+                };
+                case ("Memory B+Tree (order 2048)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_2048);
+                };
+                case ("Memory B+Tree (order 4096)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_order_4096);
                 };
 
                 case (_) {

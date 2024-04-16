@@ -4,6 +4,8 @@ import MemoryBufferClassModule "MemoryBuffer/Class";
 import VersionedMemoryBufferModule "MemoryBuffer/Versioned";
 
 import MemoryBTreeModule "MemoryBTree/Base";
+import MemoryBTreeClassModule "MemoryBTree/Class";
+import VersionedMemoryBTreeModule "MemoryBTree/Versioned";
 
 module {
     public let MemoryBuffer = MemoryBufferModule;
@@ -18,5 +20,11 @@ module {
     public let Blobify = BlobifyModule;
 
     public type MemoryBTree = MemoryBTreeModule.MemoryBTree;
-    public let MemoryBTree = MemoryBTreeModule.MemoryBTree;
+    public let MemoryBTree = MemoryBTreeModule;
+
+    public type MemoryBTreeClass<K, V> = MemoryBTreeClassModule.MemoryBTreeClass<K, V>;
+    public let MemoryBTreeClass = MemoryBTreeClassModule;
+
+    public type VersionedMemoryBTree = VersionedMemoryBTreeModule.VersionedMemoryBTree;
+    public let VersionedMemoryBTree = VersionedMemoryBTreeModule;
 };

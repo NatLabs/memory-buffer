@@ -18,6 +18,7 @@ import Itertools "mo:itertools/Iter";
 
 import Blobify "../Blobify";
 import Migrations "Migrations";
+import MemoryCmp "../MemoryCmp";
 
 module MemoryBuffer {
     type Iter<A> = Iter.Iter<A>;
@@ -698,10 +699,10 @@ module MemoryBuffer {
     // };
 
     // quick sort
-    public func sortUnstable<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, cmp : (A, A) -> Order) {
+    public func sortUnstable<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, mem_cmp : MemoryCmp.MemoryCmp<A>) {
         if (self.count == 0) return;
 
-        func partition(mbuffer : MemoryBuffer<A>, cmp : (A, A) -> Order, start : Nat, end : Nat) {
+        func partition(mbuffer : MemoryBuffer<A>, mem_cmp : MemoryCmp.MemoryCmp<A>, start : Nat, end : Nat) {
             if (start >= end) {
                 return;
             };
@@ -711,12 +712,21 @@ module MemoryBuffer {
             var j = start + 1;
 
             for (index in Iter.range(pivot + 1, end - 1)) {
-                let elem : A = get(mbuffer, blobify, index);
-                let pivot_elem : A = get(mbuffer, blobify, pivot);
 
-                let ord : Order = cmp(elem, pivot_elem);
-
-                if (ord == #less) {
+                let ord = switch(mem_cmp){
+                    case (#blob_cmp(cmp)) {
+                        let elem : Blob = _get_blob(mbuffer, index);
+                        let pivot_elem : Blob = _get_blob(mbuffer, pivot);
+                        cmp(elem, pivot_elem);
+                    };
+                    case (#cmp(cmp)){
+                        let elem : A = get(mbuffer, blobify, index);
+                        let pivot_elem : A = get(mbuffer, blobify, pivot);
+                        cmp(elem, pivot_elem);
+                    };
+                };
+                
+                if (ord == -1) {
                     swap(mbuffer, index, i);
                     i += 1;
                     j += 1;
@@ -729,52 +739,13 @@ module MemoryBuffer {
             pivot := Int.abs(i - 1);
             swap(mbuffer, start, pivot);
 
-            partition(mbuffer, cmp, start, pivot);
+            partition(mbuffer, mem_cmp, start, pivot);
 
-            partition(mbuffer, cmp, pivot + 1, j);
+            partition(mbuffer, mem_cmp, pivot + 1, j);
         };
 
-        partition(self, cmp, 0, self.count);
+        partition(self, mem_cmp, 0, self.count);
 
-    };
-
-    public func blobSortUnstable<A>(self: MemoryBuffer<A>, cmp_blob: (Blob, Blob) -> Order) {
-        if (self.count == 0) return;
-
-        func partition(mbuffer : MemoryBuffer<A>, cmp_blob : (Blob, Blob) -> Order, start : Nat, end : Nat) {
-            if (start >= end) {
-                return;
-            };
-
-            var pivot = start;
-            var i = start + 1;
-            var j = start + 1;
-
-            for (index in Iter.range(pivot + 1, end - 1)) {
-                let elem : Blob = _get_blob(mbuffer, index);
-                let pivot_elem : Blob = _get_blob(mbuffer, pivot);
-
-                let ord : Order = cmp_blob(elem, pivot_elem);
-
-                if (ord == #less) {
-                    swap(mbuffer, index, i);
-                    i += 1;
-                    j += 1;
-                } else {
-                    swap(mbuffer, index, j);
-                    j += 1;
-                };
-            };
-
-            pivot := Int.abs(i - 1);
-            swap(mbuffer, start, pivot);
-
-            partition(mbuffer, cmp_blob, start, pivot);
-
-            partition(mbuffer, cmp_blob, pivot + 1, j);
-        };
-
-        partition(self, cmp_blob, 0, self.count);
     };
 
     /// Converts a memory buffer to an array.

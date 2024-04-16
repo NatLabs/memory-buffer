@@ -1,5 +1,6 @@
 import Iter "mo:base/Iter";
 import Debug "mo:base/Debug";
+import Nat "mo:base/Nat";
 import Nat64 "mo:base/Nat64";
 import Region "mo:base/Region";
 import Buffer "mo:base/Buffer";
@@ -15,12 +16,35 @@ import { BpTree; Cmp } "mo:augmented-btrees";
 
 import MemoryBTree "../../src/MemoryBTree/Base";
 import BTreeUtils "../../src/MemoryBTree/BTreeUtils";
+import MemoryCmp "../../src/MemoryCmp";
 import Blobify "../../src/Blobify";
-import Int8Cmp "../../src/Int8Cmp";
+
 module {
 
+    let candid_text : Blobify.Blobify<Text> = {
+        from_blob = func(b : Blob) : Text {
+            let ?n : ?Text = from_candid (b) else {
+                Debug.trap("Failed to decode Text from blob");
+            };
+            n;
+        };
+        to_blob = func(n : Text) : Blob = to_candid (n);
+    };
+
+    let candid_nat : Blobify.Blobify<Nat> = {
+        from_blob = func(b : Blob) : Nat {
+            let ?n : ?Nat = from_candid (b) else {
+                Debug.trap("Failed to decode Nat from blob");
+            };
+            n;
+        };
+        to_blob = func(n : Nat) : Blob = to_candid (n);
+    };
+
+    let candid_mem_utils = (candid_text, candid_text, MemoryCmp.Default);
+
     type MemoryBTree = MemoryBTree.MemoryBTree;
-    type BTreeUtils<K, V> = MemoryBTree.BTreeUtils<K, V>;
+    type BTreeUtils<K, V> = BTreeUtils.BTreeUtils<K, V>;
 
     public func init() : Bench.Bench {
         let fuzz = Fuzz.fromSeed(0xdeadbeef);
@@ -31,9 +55,12 @@ module {
 
         bench.rows([
             "B+Tree",
-            "MotokoStableBTree",
-            "Memory B+Tree (blob cmp)",
-            "Memory B+Tree (deserialized cmp)",
+            "Memory B+Tree (no cache)",
+            "Memory B+Tree (1% cache)",
+            "Memory B+Tree (10% cache)",
+            "Memory B+Tree (50% cache)",
+            "Memory B+Tree (100% cache)",
+
         ]);
         bench.cols([
             "insert()",
@@ -50,16 +77,19 @@ module {
 
         let tconv_10 = tconv(10);
 
-        let bptree = BpTree.new<Text, Text>(?128);
+        let bptree = BpTree.new<Nat, Nat>(?32);
         let stable_btree = BTreeMap.new<Text, Text>(BTreeMapMemory.RegionMemory(Region.new()), tconv_10, tconv_10);
-        let mem_btree = MemoryBTree.new(?128);
-        let mem_btree_blob_cmp = MemoryBTree.new(?128);
+        let mem_btree_no_cache = MemoryBTree._new_with_options(?32, ?0, false);
+        let mem_btree_1_percent = MemoryBTree._new_with_options(?32, ?100, false);
+        let mem_btree_10_percent = MemoryBTree._new_with_options(?32, ?1000, false);
+        let mem_btree_50_percent = MemoryBTree._new_with_options(?32, ?5_000, false);
+        let mem_btree = MemoryBTree._new_with_options(?32, ?10_000, false);
 
-        let entries = Buffer.Buffer<(Text, Text)>(limit);
-        // let replacements = Buffer.Buffer<(Text, Text)>(limit);
+        let entries = Buffer.Buffer<(Nat, Nat)>(limit);
+        // let replacements = Buffer.Buffer<(Nat, Nat)>(limit);
 
         for (i in Iter.range(0, limit - 1)) {
-            let key = fuzz.text.randomAlphabetic(10);
+            let key = fuzz.nat.randomRange(0, limit ** 2);
 
             entries.add((key, key));
 
@@ -69,13 +99,15 @@ module {
         };
 
         let sorted = Buffer.clone(entries);
-        sorted.sort(func(a, b) = Text.compare(a.0, b.0));
+        sorted.sort(func(a, b) = Nat.compare(a.0, b.0));
 
-        func run_bench<K, V>(name : Text, category : Text, mem_btree : MemoryBTree, btree_utils: BTreeUtils<Text, Text>) {
+        let btree_utils = BTreeUtils.createUtils(BTreeUtils.BigEndian.Nat, BTreeUtils.BigEndian.Nat);
+
+        func run_bench(name : Text, category : Text, mem_btree : MemoryBTree, btree_utils : BTreeUtils<Nat, Nat>) {
             switch (category) {
                 case ("insert()") {
                     for ((key, val) in entries.vals()) {
-                        ignore MemoryBTree.insert<Text, Text>(mem_btree, btree_utils, key, val);
+                        ignore MemoryBTree.insert<Nat, Nat>(mem_btree, btree_utils, key, val);
                     };
                 };
                 case ("replace()") {
@@ -106,29 +138,23 @@ module {
             };
         };
 
-        let btree_utils = BTreeUtils.createUtils(BTreeUtils.Text, BTreeUtils.Text);
-        let ds_text_utils = {
-            key = Blobify.Text;
-            val = Blobify.Text;
-            cmp = #cmp(Int8Cmp.Text);
-        };
-
         bench.runner(
             func(col, row) = switch (col, row) {
+
                 case ("B+Tree", "insert()") {
                     for ((key, val) in entries.vals()) {
-                        ignore BpTree.insert(bptree, Cmp.Text, key, val);
+                        ignore BpTree.insert(bptree, Cmp.Nat, key, val);
                     };
                 };
                 case ("B+Tree", "replace()") {
                     for ((key, val) in entries.vals()) {
-                        ignore BpTree.insert(bptree, Cmp.Text, key, val);
+                        ignore BpTree.insert(bptree, Cmp.Nat, key, val);
                     };
                 };
                 case ("B+Tree", "get()") {
                     for (i in Iter.range(0, limit - 1)) {
                         let key = entries.get(i).0;
-                        ignore BpTree.get(bptree, Cmp.Text, key);
+                        ignore BpTree.get(bptree, Cmp.Nat, key);
                     };
                 };
                 case ("B+Tree", "entries()") {
@@ -141,7 +167,7 @@ module {
                         let a = sorted.get(i).0;
                         let b = sorted.get(i + 99).0;
 
-                        for (kv in BpTree.scan(bptree, Cmp.Text, ?a, ?b)) {
+                        for (kv in BpTree.scan(bptree, Cmp.Nat, ?a, ?b)) {
                             ignore kv;
                         };
                         i += 100;
@@ -149,49 +175,26 @@ module {
                 };
                 case ("B+Tree", "remove()") {
                     for ((k, v) in entries.vals()) {
-                        ignore BpTree.remove(bptree, Cmp.Text, k);
+                        ignore BpTree.remove(bptree, Cmp.Nat, k);
                     };
                 };
 
-                case ("MotokoStableBTree", "insert()") {
-                    for ((key, val) in entries.vals()) {
-                        ignore stable_btree.insert(key, tconv_10, val, tconv_10);
-                    };
+                case ("Memory B+Tree (no cache)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_no_cache, btree_utils);
                 };
-                case ("MotokoStableBTree", "replace()") {
-                    for ((key, val) in entries.vals()) {
-                        ignore stable_btree.insert(key, tconv_10, val, tconv_10);
-                    };
+                case ("Memory B+Tree (1% cache)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_1_percent, btree_utils);
                 };
-                case ("MotokoStableBTree", "get()") {
-                    for (i in Iter.range(0, limit - 1)) {
-                        let (key, val) = entries.get(i);
-                        ignore stable_btree.get(key, tconv_10, tconv_10);
-                    };
+                case ("Memory B+Tree (10% cache)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_10_percent, btree_utils);
                 };
-                case ("MotokoStableBTree", "entries()") {
-                    var i = 0;
-                    for (kv in stable_btree.iter(tconv_10, tconv_10)) {
-                        i += 1;
-                    };
-
-                    assert Nat64.fromNat(i) == stable_btree.getLength();
-                    Debug.print("Size: " # debug_show (i, stable_btree.getLength()));
+                case ("Memory B+Tree (50% cache)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree_50_percent, btree_utils);
                 };
-                case ("MotokoStableBTree", "scan()") {};
-                case ("MotokoStableBTree", "remove()") {
-                    for ((k, v) in entries.vals()) {
-                        ignore stable_btree.remove(k, tconv_10, tconv_10);
-                    };
+                case ("Memory B+Tree (100% cache)", category) {
+                    run_bench("Memory B+Tree", category, mem_btree, btree_utils);
                 };
 
-                case ("Memory B+Tree (blob cmp)", category) {
-                    run_bench("Memory B+Tree", category, mem_btree_blob_cmp, btree_utils);
-                };
-
-                case ("Memory B+Tree (deserialized cmp)", category) {
-                    run_bench("Memory B+Tree", category, mem_btree, ds_text_utils);
-                };
                 case (_) {
                     Debug.trap("Should not reach with row = " # debug_show row # " and col = " # debug_show col);
                 };

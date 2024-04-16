@@ -46,7 +46,7 @@ module {
         keys_blobs : [var ?Blob],
     );
 
-    public type MemoryUtils<K, V> = (
+    public type BTreeUtils<K, V> = (
         key : Blobify<K>,
         value : Blobify<V>,
         cmp : MemoryCmp<K>,
@@ -74,6 +74,7 @@ module {
         blobs : MemoryRegionV1;
 
         nodes_cache : LruCache<Address, Node>;
+        key_cache : LruCache<Address, Blob>;
     };
 
 

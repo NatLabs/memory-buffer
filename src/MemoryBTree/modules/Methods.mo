@@ -3,31 +3,20 @@ import Array "mo:base/Array";
 import Iter "mo:base/Iter";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
-import Option "mo:base/Option";
-import Nat8 "mo:base/Nat8";
-import Nat16 "mo:base/Nat16";
-import Nat32 "mo:base/Nat32";
-import Nat64 "mo:base/Nat64";
 import Blob "mo:base/Blob";
-import Result "mo:base/Result";
-import Order "mo:base/Order";
 import Buffer "mo:base/Buffer";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import LruCache "mo:lru-cache";
-import BTree "mo:stableheapbtreemap/BTree";
 import RevIter "mo:itertools/RevIter";
 import BufferDeque "mo:buffer-deque/BufferDeque";
 // import Branch "mo:augmented-btrees/BpTree/Branch";
 
-import MemoryFns "./MemoryFns";
-import ArrayMut "ArrayMut";
 import T "Types";
 import Leaf "Leaf";
 import Branch "Branch";
-import MemoryBlock "MemoryBlock";
-import Migrations "../migrations";
-import MemoryUtils "MemoryUtils";
+import Migrations "../Migrations";
+import BTreeUtils "../BTreeUtils";
 
 module {
     public type Leaf = Migrations.Leaf;
@@ -39,12 +28,11 @@ module {
     type LruCache<K, V> = LruCache.LruCache<K, V>;
     type RevIter<A> = RevIter.RevIter<A>;
     type Node = Migrations.Node;
-    public type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
+    public type BTreeUtils<K, V> = T.BTreeUtils<K, V>;
 
     public type Branch = Migrations.Branch;
 
-
-    public func get_leaf_address<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K, _opt_key_blob : ?Blob) : Nat {
+    public func get_leaf_address<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : K, _opt_key_blob : ?Blob) : Nat {
         var curr_address = btree.root;
         var opt_key_blob : ?Blob = _opt_key_blob;
 
@@ -61,13 +49,13 @@ module {
 
                     let count = Branch.get_count(btree, curr_address);
 
-                    let int_index = switch (mem_utils.2) {
-                        case (#cmp(cmp)) Branch.binary_search<K, V>(btree, mem_utils, curr_address, cmp, key, count - 1);
+                    let int_index = switch (btree_utils.cmp) {
+                        case (#cmp(cmp)) Branch.binary_search<K, V>(btree, btree_utils, curr_address, cmp, key, count - 1);
                         case (#blob_cmp(cmp)) {
 
                             let key_blob = switch (opt_key_blob) {
                                 case (null) {
-                                    let key_blob = mem_utils.0.to_blob(key);
+                                    let key_blob = btree_utils.key.to_blob(key);
                                     opt_key_blob := ?key_blob;
                                     key_blob;
                                 };
@@ -150,7 +138,7 @@ module {
     };
 
     // Returns the leaf node and rank of the first element in the leaf node
-    public func get_leaf_node_and_index<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : Blob) : (Address, Nat) {
+    public func get_leaf_node_and_index<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : Blob) : (Address, Nat) {
         let node_type = Branch.get_node_type(btree, btree.root);
 
         let branch = switch (node_type) {
@@ -172,10 +160,10 @@ module {
                     case (#branch(_)) {
                         
                         // Debug.print("branch child: " # debug_show child);
-                        switch(mem_utils.2) {
+                        switch(btree_utils.cmp) {
                             case (#cmp(cmp)) {
-                                let ds_key = mem_utils.0.from_blob(key);
-                                let ds_search_key = mem_utils.0.from_blob(search_key);
+                                let ds_key = btree_utils.key.from_blob(key);
+                                let ds_search_key = btree_utils.key.from_blob(search_key);
                                 // Debug.print("(key, search_key, res) -> " # debug_show (key, search_key, cmp(ds_key, ds_search_key)));
 
                                 if (cmp(ds_key, ds_search_key) >= 0) {
@@ -197,10 +185,10 @@ module {
                         // subtract before comparison because we want the rank of the first element in the leaf node
                         rank -= Leaf.get_count(btree, child);
 
-                        switch(mem_utils.2) {
+                        switch(btree_utils.cmp) {
                             case (#cmp(cmp)) {
-                                let ds_key = mem_utils.0.from_blob(key);
-                                let ds_search_key = mem_utils.0.from_blob(search_key);
+                                let ds_key = btree_utils.key.from_blob(key);
+                                let ds_search_key = btree_utils.key.from_blob(search_key);
                                 // Debug.print("(key, search_key, res) -> " # debug_show (key, search_key, cmp(ds_key, ds_search_key)));
                                 if (cmp(ds_key, ds_search_key) >= 0) {
                                     return child;
@@ -247,7 +235,6 @@ module {
 
         func get_node(parent : Address) : Address {
             var i = Branch.get_count(btree, parent) - 1 : Nat;
-            var curr = ?parent;
             var child_index = Branch.get_subtree_size(btree, parent);
 
             label get_node_loop loop {
@@ -358,7 +345,7 @@ module {
         RevIter.new(next, nextFromEnd);
     };
 
-    public func blocks(btree : MemoryBTree) : RevIter<(Blob, Blob)> {
+    public func key_val_blobs(btree : MemoryBTree) : RevIter<(Blob, Blob)> {
         let min_leaf = get_min_leaf_address(btree);
         let max_leaf = get_max_leaf_address(btree);
         let max_leaf_count = Leaf.get_count(btree, max_leaf);
@@ -366,36 +353,36 @@ module {
         new_blobs_iterator(btree, min_leaf, 0, max_leaf, max_leaf_count);
     };
 
-    public func deserialize_kv_blobs<K, V>(mem_utils : MemoryUtils<K, V>, key_blob : Blob, val_blob : Blob) : (K, V) {
-        let key = mem_utils.0.from_blob(key_blob);
-        let value = mem_utils.1.from_blob(val_blob);
+    public func deserialize_kv_blobs<K, V>(btree_utils : BTreeUtils<K, V>, key_blob : Blob, val_blob : Blob) : (K, V) {
+        let key = btree_utils.key.from_blob(key_blob);
+        let value = btree_utils.val.from_blob(val_blob);
         (key, value);
     };
 
-    public func entries<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(K, V)> {
+    public func entries<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : RevIter<(K, V)> {
         RevIter.map<(Blob, Blob), (K, V)>(
-            blocks(btree),
+            key_val_blobs(btree),
             func((key_blob, val_blob) : (Blob, Blob)) : (K, V) {
-                deserialize_kv_blobs(mem_utils, key_blob, val_blob)
+                deserialize_kv_blobs(btree_utils, key_blob, val_blob)
             },
         );
     };
 
-    public func keys<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(K)> {
+    public func keys<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : RevIter<(K)> {
         RevIter.map<(Blob, Blob), (K)>(
-            blocks(btree),
+            key_val_blobs(btree),
             func((key_blob, _) : (Blob, Blob)) : (K) {
-                let key = mem_utils.0.from_blob(key_blob);
+                let key = btree_utils.key.from_blob(key_blob);
                 key;
             },
         );
     };
 
-    public func vals<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(V)> {
+    public func vals<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : RevIter<(V)> {
         RevIter.map<(Blob, Blob), V>(
-            blocks(btree),
+            key_val_blobs(btree),
             func((_, val_blob) : (Blob, Blob)) : V {
-                let value = mem_utils.1.from_blob(val_blob);
+                let value = btree_utils.val.from_blob(val_blob);
                 value;
             },
         );
@@ -452,7 +439,7 @@ module {
         new_leaf_address_iterator(btree, min_leaf, max_leaf);
     };
 
-    public func leaf_nodes<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<[?(K, V)]> {
+    public func leaf_nodes<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : RevIter<[?(K, V)]> {
         let min_leaf = get_min_leaf_address(btree);
         let max_leaf = get_max_leaf_address(btree);
 
@@ -467,14 +454,14 @@ module {
                         if (i >= count) return null;
 
                         let ?(key, val) = Leaf.get_kv_blobs(btree, leaf_address, i) else Debug.trap("leaf_nodes: accessed a null value");
-                        ?(mem_utils.0.from_blob(key), mem_utils.1.from_blob(val));
+                        ?(btree_utils.key.from_blob(key), btree_utils.val.from_blob(val));
                     },
                 );
             },
         );
     };
 
-    public func node_keys<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : [[(Nat, [?K])]] {
+    public func node_keys<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : [[(Nat, [?K])]] {
         var nodes = BufferDeque.fromArray<Address>([btree.root]);
         var buffer = Buffer.Buffer<[(Nat, [?K])]>(btree.branch_count);
 
@@ -492,7 +479,7 @@ module {
                             func(i : Nat) : ?K {
                                 switch (Branch.get_key_blob(btree, node, i)) {
                                     case (?key_blob) {
-                                        let key = mem_utils.0.from_blob(key_blob);
+                                        let key = btree_utils.key.from_blob(key_blob);
                                         return ?key;
                                     };
                                     case (_) return null;
@@ -519,7 +506,7 @@ module {
         Buffer.toArray(buffer);
     };
 
-    public func validate_memory(btree : MemoryBTree, mem_utils : MemoryUtils<Nat, Nat >) : Bool {
+    public func validate_memory(btree : MemoryBTree, btree_utils : BTreeUtils<Nat, Nat >) : Bool {
         // LruCache.clear(btree.nodes_cache);
 
         func _validate(address : Nat) : (index : Nat, subtree_size : Nat) {
@@ -552,17 +539,17 @@ module {
                         switch (prev_key) {
                             case (null) {};
                             case (?prev) {
-                                switch (mem_utils.2) {
+                                switch (btree_utils.cmp) {
                                     case (#cmp(cmp)) {
-                                        let _prev = mem_utils.0.from_blob(prev);
-                                        let _key = mem_utils.0.from_blob(key);
+                                        let _prev = btree_utils.key.from_blob(prev);
+                                        let _key = btree_utils.key.from_blob(key);
                                         // Debug.print("l (prev, key): " # debug_show (_prev, _key));
 
                                         if (cmp(_prev, _key) != -1) {
                                             Debug.print("key mismatch at index: " # debug_show i);
                                             Debug.print("prev: " # debug_show prev);
                                             Debug.print("key: " # debug_show key);
-                                            Leaf.display(btree, mem_utils, address);
+                                            Leaf.display(btree, btree_utils, address);
 
                                             assert false;
                                         };
@@ -572,7 +559,7 @@ module {
                                             Debug.print("key mismatch at index: " # debug_show i);
                                             Debug.print("prev: " # debug_show prev);
                                             Debug.print("key: " # debug_show key);
-                                            Leaf.display(btree, mem_utils, address);
+                                            Leaf.display(btree, btree_utils, address);
 
                                             assert false;
                                         };
@@ -609,21 +596,22 @@ module {
                     while (i < count) {
                         if (i + 1 < count) {
                             let ?key = Branch.get_key_blob(btree, address, i) else Debug.trap("validate: accessed a null value");
+
                             assert ?key == branch.6[i];
 
                             switch (prev_key) {
                                 case (null) {};
                                 case (?prev) {
-                                    switch (mem_utils.2) {
+                                    switch (btree_utils.cmp) {
                                         case (#cmp(cmp)) {
-                                            let _prev = mem_utils.0.from_blob(prev);
-                                            let _key = mem_utils.0.from_blob(key);
+                                            let _prev = btree_utils.key.from_blob(prev);
+                                            let _key = btree_utils.key.from_blob(key);
                                             // Debug.print("b (prev, key): " # debug_show (_prev, _key));
                                             if (cmp(_prev, _key) != -1) {
                                                 Debug.print("key mismatch at index: " # debug_show i);
                                                 Debug.print("prev: " # debug_show prev);
                                                 Debug.print("key: " # debug_show key);
-                                                Branch.display(btree, mem_utils, address);
+                                                Branch.display(btree, btree_utils, address);
                                                 assert false;
                                             };
                                         };
@@ -632,7 +620,7 @@ module {
                                                 Debug.print("key mismatch at index: " # debug_show i);
                                                 Debug.print("prev: " # debug_show prev);
                                                 Debug.print("key: " # debug_show key);
-                                                Branch.display(btree,  mem_utils, address);
+                                                Branch.display(btree,  btree_utils, address);
 
                                                 assert false;
                                             };

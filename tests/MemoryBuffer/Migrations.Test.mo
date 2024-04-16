@@ -1,8 +1,8 @@
 // @testmode wasi
 import { test; suite } "mo:test";
-import MemoryBuffer "../../src/MemoryBuffer";
-import VersionedMemoryBuffer "../../src/VersionedMemoryBuffer";
-import Migrations "../../src/Migrations";
+import MemoryBuffer "../../src/MemoryBuffer/Base";
+import VersionedMemoryBuffer "../../src/MemoryBuffer/Versioned";
+import Migrations "../../src/MemoryBuffer/Migrations";
 import Blobify "../../src/Blobify";
 
 suite(

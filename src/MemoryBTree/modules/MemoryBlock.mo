@@ -5,7 +5,7 @@ import MemoryRegion "mo:memory-region/MemoryRegion";
 import LruCache "mo:lru-cache";
 import RevIter "mo:itertools/RevIter";
 
-import Migrations "../migrations";
+import Migrations "../Migrations";
 import T "Types";
 
 module MemoryBlock {
@@ -18,7 +18,7 @@ module MemoryBlock {
     public type MemoryBTree = Migrations.MemoryBTree;
     public type Node = Migrations.Node;
     public type MemoryBlock = T.MemoryBlock;
-    public type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
+    public type BTreeUtils<K, V> = T.BTreeUtils<K, V>;
 
     let {nhash} = LruCache;
 
@@ -26,7 +26,7 @@ module MemoryBlock {
         let mb_address = MemoryRegion.allocate(btree.blobs, key.size());
         MemoryRegion.storeBlob(btree.blobs, mb_address, key);
 
-        // LruCache.put(btree.keys_cache, nhash, mb_address, key);
+        // LruCache.put(btree.key_cache, nhash, mb_address, key);
 
         (mb_address, key.size());
     };
@@ -35,8 +35,6 @@ module MemoryBlock {
         let mb_address = MemoryRegion.allocate(btree.blobs, val.size());
         MemoryRegion.storeBlob(btree.blobs, mb_address, val);
 
-        // LruCache.put(btree.vals_cache, nhash, mb_address, val);
-
         (mb_address, val.size());
     };
 
@@ -44,22 +42,32 @@ module MemoryBlock {
         let new_mb_address = MemoryRegion.resize(btree.blobs, prev_block.0, prev_block.1, val.size());
         MemoryRegion.storeBlob(btree.blobs, new_mb_address, val);
 
-        // ignore LruCache.remove(btree.vals_cache, nhash, prev_block.0);
-
-        // LruCache.put(btree.vals_cache, nhash, new_mb_address, val);
-
         (new_mb_address, val.size());
     };
 
     public func get_key(btree : MemoryBTree, mb : MemoryBlock) : Blob {
+        switch(LruCache.get(btree.key_cache, nhash, mb.0)){
+            case (?key_blob) return key_blob;
+            case (_){};
+        };
+        
         let blob = MemoryRegion.loadBlob(btree.blobs, mb.0, mb.1);
-        // LruCache.put(btree.keys_cache, nhash, mb.0, blob);
+        LruCache.put(btree.key_cache, nhash, mb.0, blob);
+        blob;
+    };
+
+    public func peek_key(btree : MemoryBTree, mb : MemoryBlock) : Blob {
+        switch(LruCache.get(btree.key_cache, nhash, mb.0)){
+            case (?key_blob) return key_blob;
+            case (_){};
+        };
+        
+        let blob = MemoryRegion.loadBlob(btree.blobs, mb.0, mb.1);
         blob;
     };
 
     public func get_val(btree : MemoryBTree, mb : MemoryBlock) : Blob {
         let blob = MemoryRegion.loadBlob(btree.blobs, mb.0, mb.1);
-        // LruCache.put(btree.vals_cache, nhash, mb.0, blob);
         blob;
     };
 
@@ -69,5 +77,6 @@ module MemoryBlock {
 
     public func remove_key(btree : MemoryBTree, mb : MemoryBlock) {
         MemoryRegion.deallocate(btree.blobs, mb.0, mb.1);
+        ignore LruCache.remove(btree.key_cache, nhash, mb.0);
     };
 };

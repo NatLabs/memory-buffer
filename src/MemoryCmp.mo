@@ -10,28 +10,6 @@ module {
     };
 
     public let Default = #blob_cmp(Int8Cmp.Blob);
-    public let Text = #blob_cmp(Int8Cmp.Blob);
-
-    public let Nat = #cmp(Int8Cmp.Nat);
-    // public let Nat = #blob_cmp(
-    //     func (a: Blob, b: Blob) : Int8 {
-    //         if (a.size() > b.size()) return 1;
-    //         if (a.size() < b.size()) return -1;
-
-    //         let a_bytes = Blob.toArray(a);
-    //         let b_bytes = Blob.toArray(b);
-
-    //         var i = a_bytes.size();
-    //         while (i > 0) {
-    //             let j = i - 1;
-    //             if (a_bytes[j] > b_bytes[j]) return 1;
-    //             if (a_bytes[j] < b_bytes[j]) return -1;
-    //             i -=1;
-    //         };
-
-    //         return 0;
-    //     }
-    // );
 
     public module BigEndian {
         public let Nat = #blob_cmp(
@@ -42,24 +20,28 @@ module {
                 Prim.blobCompare(a, b);
             }
         );
+
+        public let Nat8 = #blob_cmp(Prim.blobCompare);
+        public let Nat16 = #blob_cmp(Prim.blobCompare);
+        public let Nat32 = #blob_cmp(Prim.blobCompare);
+        public let Nat64 = #blob_cmp(Prim.blobCompare);
     };
 
-    public let Nat8 = #blob_cmp(Prim.blobCompare);
+    public let Nat = #cmp(Int8Cmp.Nat);
 
-    public let Nat16 = #blob_cmp(
-        func (a: Blob, b: Blob) : Int8 {
-            let a_bytes = Blob.toArray(a);
-            let b_bytes = Blob.toArray(b);
+    public let Nat8 = #cmp(Int8Cmp.Nat8);
+    public let Nat16 = #cmp(Int8Cmp.Nat16);
+    public let Nat32 = #cmp(Int8Cmp.Nat32);
+    public let Nat64 = #cmp(Int8Cmp.Nat64);
 
-            var i = a_bytes.size();
-            while (i > 0) {
-                let j = i - 1;
-                if (a_bytes[j] > b_bytes[j]) return 1;
-                if (a_bytes[j] < b_bytes[j]) return -1;
-                i -=1;
-            };
+    public let Blob = #blob_cmp(Prim.blobCompare);
 
-            return 0;
-        }
-    );
+    public let Bool = #blob_cmp(Prim.blobCompare);
+
+    public let Char = #blob_cmp(Prim.blobCompare);
+
+    public let Text = #blob_cmp(Prim.blobCompare);
+
+    public let Principal = #blob_cmp(Prim.blobCompare);
+
 }

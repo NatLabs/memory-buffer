@@ -1,5 +1,4 @@
 import Debug "mo:base/Debug";
-import Array "mo:base/Array";
 import Iter "mo:base/Iter";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
@@ -9,20 +8,14 @@ import Nat16 "mo:base/Nat16";
 import Nat32 "mo:base/Nat32";
 import Nat64 "mo:base/Nat64";
 import Blob "mo:base/Blob";
-import Result "mo:base/Result";
-import Order "mo:base/Order";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import LruCache "mo:lru-cache";
-import BTree "mo:stableheapbtreemap/BTree";
 import RevIter "mo:itertools/RevIter";
 // import Branch "mo:augmented-btrees/BpTree/Branch";
-import Itertools "mo:itertools/Iter";
 
 import Blobify "../Blobify";
 import MemoryCmp "../MemoryCmp";
-import MemoryFns "modules/MemoryFns";
-import ArrayMut "modules/ArrayMut";
 import Methods "modules/Methods";
 import MemoryBlock "modules/MemoryBlock";
 import Branch "modules/Branch";
@@ -48,9 +41,7 @@ module {
     public type VersionedMemoryBTree = Migrations.VersionedMemoryBTree;
 
     public type MemoryBlock = T.MemoryBlock;
-    public type MemoryUtils<K, V> = T.MemoryUtils<K, V>;
-
-    let { nhash } = LruCache;
+    public type BTreeUtils<K, V> = T.BTreeUtils<K, V>;
 
     let CACHE_LIMIT = 50_000;
 
@@ -67,7 +58,8 @@ module {
             metadata = MemoryRegion.new();
             blobs = MemoryRegion.new();
 
-            nodes_cache = LruCache.new(cache_size);
+            nodes_cache = LruCache.new(0);
+            key_cache = LruCache.new(cache_size);
         };
 
         init_region_header(btree_map);
@@ -93,19 +85,6 @@ module {
     public let POINTER_SIZE = 12;
     public let LAYOUT_VERSION = 0;
 
-    public let Layout = [
-        {
-            MAGIC_NUMBER_ADDRESS = 0;
-            LAYOUT_VERSION_ADDRESS = 3;
-            REGION_ID_ADDRESS = 4;
-            ORDER_ADDRESS = 8;
-            ROOT_ADDRESS = 16;
-            COUNT_ADDRESS = 24;
-            POINTERS_START = 64;
-            BLOB_START = 64;
-        },
-    ];
-
     let MC = {
         MAGIC_NUMBER_ADDRESS = 00;
         LAYOUT_VERSION_ADDRESS = 3;
@@ -115,9 +94,11 @@ module {
         COUNT_ADDRESS = 24;
         BRANCH_COUNT = 32;
         LEAF_COUNT = 40;
-        BLOB_START = 64;
-        NODES_START = 96;
+        BLOB_START = BLOBS_REGION_HEADER_SIZE;
+        NODES_START = METADATA_REGION_HEADER_SIZE;
     };
+
+    public let Layout = [MC];
 
     func init_region_header(btree : MemoryBTree) {
         assert MemoryRegion.size(btree.blobs) == 0;
@@ -162,10 +143,6 @@ module {
     public func metadataBytes(btree : MemoryBTree) : Nat {
         MemoryRegion.allocated(btree.metadata);
     };
-    
-    public func totalPages(btree : MemoryBTree) : Nat {
-        MemoryRegion.pages(btree.blobs);
-    };
 
     func update_root(btree : MemoryBTree, new_root : Address) {
         btree.root := new_root;
@@ -192,14 +169,14 @@ module {
         Branch.update_subtree_size(btree, branch_address, subtree_size + 1);
     };
 
-    public func insert<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K, value : V) : ?V {
-        let key_blob = mem_utils.0.to_blob(key);
+    public func insert<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : K, value : V) : ?V {
+        let key_blob = btree_utils.key.to_blob(key);
 
-        let leaf_address = Methods.get_leaf_address(btree, mem_utils, key, ?key_blob);
+        let leaf_address = Methods.get_leaf_address(btree, btree_utils, key, ?key_blob);
         let count = Leaf.get_count(btree, leaf_address);
 
-        let int_index = switch (mem_utils.2) {
-            case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, leaf_address, cmp, key, count);
+        let int_index = switch (btree_utils.cmp) {
+            case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, btree_utils, leaf_address, cmp, key, count);
             case (#blob_cmp(cmp)) {
                 Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, count);
             };
@@ -207,7 +184,7 @@ module {
 
         let elem_index = if (int_index >= 0) Int.abs(int_index) else Int.abs(int_index + 1);
 
-        let val_blob = mem_utils.1.to_blob(value);
+        let val_blob = btree_utils.val.to_blob(value);
 
         if (int_index >= 0) {
             // existing key
@@ -217,7 +194,7 @@ module {
             let val_block = MemoryBlock.replace_val(btree, prev_val_block, val_blob);
             Leaf.put_val(btree, leaf_address, elem_index, val_block, val_blob);
 
-            return ?mem_utils.1.from_blob(prev_val_blob);
+            return ?btree_utils.val.from_blob(prev_val_blob);
         };
 
         let key_block = MemoryBlock.store_key(btree, key_blob);
@@ -304,54 +281,54 @@ module {
         null;
     };
 
-    public func blocks(btree : MemoryBTree) : RevIter<(Blob, Blob)> {
-        Methods.blocks(btree);
+    public func entries<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : RevIter<(K, V)> {
+        Methods.entries(btree, btree_utils);
     };
 
-    public func entries<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<(K, V)> {
-        Methods.entries(btree, mem_utils);
+    public func toEntries<K, V>(btree: MemoryBTree, btree_utils: BTreeUtils<K, V>) : [(K, V)] {
+        Utils.sized_iter_to_array<(K, V)>(entries(btree, btree_utils), btree.count);
     };
 
-    public func toEntries<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : [(K, V)] {
-        Utils.sized_iter_to_array<(K, V)>(entries(btree, mem_utils), btree.count);
+    public func toArray<K, V>(btree: MemoryBTree, btree_utils: BTreeUtils<K, V>) : [(K, V)] {
+        Utils.sized_iter_to_array<(K, V)>(entries(btree, btree_utils), btree.count);
     };
 
-    public func keys<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<K> {
-        Methods.keys(btree, mem_utils);
+    public func keys<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : RevIter<K> {
+        Methods.keys(btree, btree_utils);
     };
 
-    public func toKeys<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : [K] {
-        Utils.sized_iter_to_array<K>(keys(btree, mem_utils), btree.count);
+    public func toKeys<K, V>(btree: MemoryBTree, btree_utils: BTreeUtils<K, V>) : [K] {
+        Utils.sized_iter_to_array<K>(keys(btree, btree_utils), btree.count);
     };
 
-    public func vals<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : RevIter<V> {
-        Methods.vals(btree, mem_utils);
+    public func vals<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : RevIter<V> {
+        Methods.vals(btree, btree_utils);
     };
 
-    public func toVals<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : [V] {
-        Utils.sized_iter_to_array<V>(vals(btree, mem_utils), btree.count);
+    public func toVals<K, V>(btree: MemoryBTree, btree_utils: BTreeUtils<K, V>) : [V] {
+        Utils.sized_iter_to_array<V>(vals(btree, btree_utils), btree.count);
     };
 
-    public func leafNodes<K, V>(btree : MemoryBTree, mem_utils: MemoryUtils<K, V>) : RevIter<[?(K, V)]> {
-        Methods.leaf_nodes(btree, mem_utils);
+    public func leafNodes<K, V>(btree : MemoryBTree, btree_utils: BTreeUtils<K, V>) : RevIter<[?(K, V)]> {
+        Methods.leaf_nodes(btree, btree_utils);
     };
 
-    public func toLeafNodes<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : [[?(K, V)]] {
-        Utils.sized_iter_to_array<[?(K, V)]>(leafNodes<K, V>(btree, mem_utils), btree.leaf_count);
+    public func toLeafNodes<K, V>(btree: MemoryBTree, btree_utils: BTreeUtils<K, V>) : [[?(K, V)]] {
+        Utils.sized_iter_to_array<[?(K, V)]>(leafNodes<K, V>(btree, btree_utils), btree.leaf_count);
     };
 
-    public func toNodeKeys<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>) : [[(Nat, [?K])]] {
-        Methods.node_keys(btree, mem_utils);
+    public func toNodeKeys<K, V>(btree: MemoryBTree, btree_utils: BTreeUtils<K, V>) : [[(Nat, [?K])]] {
+        Methods.node_keys(btree, btree_utils);
     };
 
-    public func get<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : ?V {
-        let key_blob = mem_utils.0.to_blob(key);
+    public func get<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : K) : ?V {
+        let key_blob = btree_utils.key.to_blob(key);
 
-        let leaf_address = Methods.get_leaf_address(btree, mem_utils, key, ?key_blob);
+        let leaf_address = Methods.get_leaf_address(btree, btree_utils, key, ?key_blob);
         let count = Leaf.get_count(btree, leaf_address);
 
-        let int_index = switch (mem_utils.2) {
-            case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, leaf_address, cmp, key, count);
+        let int_index = switch (btree_utils.cmp) {
+            case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, btree_utils, leaf_address, cmp, key, count);
             case (#blob_cmp(cmp)) {
                 Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, count);
             };
@@ -362,30 +339,30 @@ module {
         let elem_index = Int.abs(int_index);
 
         let ?val_blob = Leaf.get_val_blob(btree, leaf_address, elem_index) else Debug.trap("get: accessed a null value");
-        let value = mem_utils.1.from_blob(val_blob);
+        let value = btree_utils.val.from_blob(val_blob);
         ?value;
     };
 
-    public func getMin<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
+    public func getMin<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : ?(K, V) {
         let leaf_address = Methods.get_min_leaf_address(btree);
 
         let ?key_blob = Leaf.get_key_blob(btree, leaf_address, 0) else Debug.trap("getMin: accessed a null value");
         let ?val_blob = Leaf.get_val_blob(btree, leaf_address, 0) else Debug.trap("getMin: accessed a null value");
 
-        let key = mem_utils.0.from_blob(key_blob);
-        let value = mem_utils.1.from_blob(val_blob);
+        let key = btree_utils.key.from_blob(key_blob);
+        let value = btree_utils.val.from_blob(val_blob);
         ?(key, value);
     };
 
-    public func getMax<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
+    public func getMax<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : ?(K, V) {
         let leaf_address = Methods.get_max_leaf_address(btree);
         let count = Leaf.get_count(btree, leaf_address);
 
         let ?key_blob = Leaf.get_key_blob(btree, leaf_address, count - 1 : Nat) else Debug.trap("getMax: accessed a null value");
         let ?val_blob = Leaf.get_val_blob(btree, leaf_address, count - 1 : Nat) else Debug.trap("getMax: accessed a null value");
 
-        let key = mem_utils.0.from_blob(key_blob);
-        let value = mem_utils.1.from_blob(val_blob);
+        let key = btree_utils.key.from_blob(key_blob);
+        let value = btree_utils.val.from_blob(val_blob);
         ?(key, value);
     };
 
@@ -447,14 +424,14 @@ module {
         Branch.update_subtree_size(btree, branch_address, subtree_size - 1);
     };
 
-    public func remove<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : ?V {
-        let key_blob = mem_utils.0.to_blob(key);
+    public func remove<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : K) : ?V {
+        let key_blob = btree_utils.key.to_blob(key);
 
-        let leaf_address = Methods.get_leaf_address(btree, mem_utils, key, ?key_blob);
+        let leaf_address = Methods.get_leaf_address(btree, btree_utils, key, ?key_blob);
         let count = Leaf.get_count(btree, leaf_address);
 
-        let int_index = switch (mem_utils.2) {
-            case (#cmp(cmp)) Leaf.binary_search(btree, mem_utils, leaf_address, cmp, key, count);
+        let int_index = switch (btree_utils.cmp) {
+            case (#cmp(cmp)) Leaf.binary_search(btree, btree_utils, leaf_address, cmp, key, count);
             case (#blob_cmp(cmp)) {
                 Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, count);
             };
@@ -464,10 +441,10 @@ module {
 
         let elem_index = Int.abs(int_index);
 
-        let ?prev_val_block = Leaf.get_val_block(btree, leaf_address, elem_index) else Debug.trap("remove: prev_val_block is null");
+        // let ?prev_val_block = Leaf.get_val_block(btree, leaf_address, elem_index) else Debug.trap("remove: prev_val_block is null");
         let ?prev_val_blob = Leaf.get_val_blob(btree, leaf_address, elem_index) else Debug.trap("remove: prev_val_blob is null");
 
-        let prev_val = mem_utils.1.from_blob(prev_val_blob);
+        let prev_val = btree_utils.val.from_blob(prev_val_blob);
         // Debug.print("leaf: " # debug_show Leaf.from_memory(btree, leaf_address));
 
         let ?key_block_to_delete = Leaf.get_key_block(btree, leaf_address, elem_index) else Debug.trap("remove: key_block_to_delete is null");
@@ -518,7 +495,7 @@ module {
         let left = if (leaf_index < neighbour_index) { leaf_address } else { neighbour };
         let right = if (leaf_index < neighbour_index) { neighbour } else { leaf_address };
 
-        let left_index = if (leaf_index < neighbour_index) { leaf_index } else { neighbour_index };
+        // let left_index = if (leaf_index < neighbour_index) { leaf_index } else { neighbour_index };
         let right_index = if (leaf_index < neighbour_index) { neighbour_index } else { leaf_index };
 
         // Debug.print("leaf.redistribute");
@@ -620,38 +597,38 @@ module {
         return end_operation(?parent);
     };
 
-    public func removeMin<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
-        let ?min = getMin<K, V>(btree, mem_utils) else return null;
-        ignore remove<K, V>(btree, mem_utils, min.0);
+    public func removeMin<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : ?(K, V) {
+        let ?min = getMin<K, V>(btree, btree_utils) else return null;
+        ignore remove<K, V>(btree, btree_utils, min.0);
         ?min
     };
 
-    public func removeMax<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>) : ?(K, V) {
-        let ?max = getMax<K, V>(btree, mem_utils) else return null;
-        ignore remove<K, V>(btree, mem_utils, max.0);
+    public func removeMax<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>) : ?(K, V) {
+        let ?max = getMax<K, V>(btree, btree_utils) else return null;
+        ignore remove<K, V>(btree, btree_utils, max.0);
         ?max
     };
 
-    public func fromArray<K, V>(mem_utils: MemoryUtils<K, V>, arr : [(K, V)], order : ?Nat) : MemoryBTree {
-        fromEntries(mem_utils, arr.vals(), order);
+    public func fromArray<K, V>(btree_utils: BTreeUtils<K, V>, arr : [(K, V)], order : ?Nat) : MemoryBTree {
+        fromEntries(btree_utils, arr.vals(), order);
     };
 
-    public func fromEntries<K, V>(mem_utils: MemoryUtils<K, V>, entries : Iter<(K, V)>, order : ?Nat) : MemoryBTree {
+    public func fromEntries<K, V>(btree_utils: BTreeUtils<K, V>, entries : Iter<(K, V)>, order : ?Nat) : MemoryBTree {
         let btree = new(order);
 
         for ((k, v) in entries){
-            ignore insert(btree, mem_utils, k, v);
+            ignore insert(btree, btree_utils, k, v);
         };
 
         btree;
     };
 
-    public func getCeiling<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : ?(K, V) {
-        let key_blob = mem_utils.0.to_blob(key);
-        let leaf_address = Methods.get_leaf_address<K, V>(btree, mem_utils, key, ?key_blob);
+    public func getCeiling<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : K) : ?(K, V) {
+        let key_blob = btree_utils.key.to_blob(key);
+        let leaf_address = Methods.get_leaf_address<K, V>(btree, btree_utils, key, ?key_blob);
 
-        let i = switch(mem_utils.2){
-            case(#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, leaf_address, cmp, key, Leaf.get_count(btree, leaf_address));
+        let i = switch(btree_utils.cmp){
+            case(#cmp(cmp)) Leaf.binary_search<K, V>(btree, btree_utils, leaf_address, cmp, key, Leaf.get_count(btree, leaf_address));
             case(#blob_cmp(cmp)) {
                 Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, Leaf.get_count(btree, leaf_address));
             };
@@ -659,7 +636,7 @@ module {
 
         if (i >= 0) {
             let ?(k, v) =  Leaf.get_kv_blobs(btree, leaf_address, Int.abs(i)) else return null;
-            return ?Methods.deserialize_kv_blobs<K, V>(mem_utils, k, v)
+            return ?Methods.deserialize_kv_blobs<K, V>(btree_utils, k, v)
         };
 
         let expected_index = Int.abs(i) - 1 : Nat;
@@ -667,20 +644,20 @@ module {
         if (expected_index == Leaf.get_count(btree, leaf_address)) {
             let ?next_address = Leaf.get_next(btree, leaf_address) else return null;
             let ?(k, v) = Leaf.get_kv_blobs(btree, next_address, 0) else return null;
-            return ?Methods.deserialize_kv_blobs<K, V>(mem_utils, k, v)
+            return ?Methods.deserialize_kv_blobs<K, V>(btree_utils, k, v)
         };
 
         let ?(k, v) = Leaf.get_kv_blobs(btree, leaf_address, expected_index) else return null;
-        return ?Methods.deserialize_kv_blobs<K, V>(mem_utils, k, v)
+        return ?Methods.deserialize_kv_blobs<K, V>(btree_utils, k, v)
     };
 
     
-    public func getFloor<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : ?(K, V) {
-        let key_blob = mem_utils.0.to_blob(key);
-        let leaf_address = Methods.get_leaf_address<K, V>(btree, mem_utils, key, ?key_blob);
+    public func getFloor<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : K) : ?(K, V) {
+        let key_blob = btree_utils.key.to_blob(key);
+        let leaf_address = Methods.get_leaf_address<K, V>(btree, btree_utils, key, ?key_blob);
 
-        let i = switch(mem_utils.2){
-            case(#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, leaf_address, cmp, key, Leaf.get_count(btree, leaf_address));
+        let i = switch(btree_utils.cmp){
+            case(#cmp(cmp)) Leaf.binary_search<K, V>(btree, btree_utils, leaf_address, cmp, key, Leaf.get_count(btree, leaf_address));
             case(#blob_cmp(cmp)) {
                 Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, Leaf.get_count(btree, leaf_address));
             };
@@ -688,7 +665,7 @@ module {
         
         if (i >= 0) {
             let ?kv_blobs = Leaf.get_kv_blobs(btree, leaf_address, Int.abs(i)) else return null;
-            return ?Methods.deserialize_kv_blobs<K, V>(mem_utils, kv_blobs.0, kv_blobs.1);
+            return ?Methods.deserialize_kv_blobs<K, V>(btree_utils, kv_blobs.0, kv_blobs.1);
         };
         
         let expected_index = Int.abs(i) - 1 : Nat;
@@ -697,44 +674,44 @@ module {
             let ?prev_address = Leaf.get_prev(btree, leaf_address) else return null;
             let prev_count = Leaf.get_count(btree, prev_address);
             let ?(k, v) = Leaf.get_kv_blobs(btree, prev_address, prev_count - 1) else return null;
-            return ?Methods.deserialize_kv_blobs<K, V>(mem_utils, k, v);
+            return ?Methods.deserialize_kv_blobs<K, V>(btree_utils, k, v);
         };
 
         let ?kv_blobs = Leaf.get_kv_blobs(btree, leaf_address, expected_index - 1) else return null;
-        return ?Methods.deserialize_kv_blobs<K, V>(mem_utils, kv_blobs.0, kv_blobs.1);
+        return ?Methods.deserialize_kv_blobs<K, V>(btree_utils, kv_blobs.0, kv_blobs.1);
     };
 
     // Returns the key-value pair at the given index.
     // Throws an error if the index is greater than the size of the tree.
-    public func getFromIndex<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, index : Nat) : (K, V) {
+    public func getFromIndex<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, index : Nat) : (K, V) {
         if (index >= btree.count) return Debug.trap("getFromIndex: index is out of bounds");
 
         let (leaf_address, i) = Methods.get_leaf_node_by_index(btree, index);
 
         let ?entry = Leaf.get_kv_blobs(btree, leaf_address, i) else Debug.trap("getFromIndex: accessed a null value");
 
-        Methods.deserialize_kv_blobs(mem_utils, entry.0, entry.1);
+        Methods.deserialize_kv_blobs(btree_utils, entry.0, entry.1);
     };
 
     // Returns the index of the given key in the tree.
     // Throws an error if the key does not exist in the tree.
-    public func getIndex<K, V>(btree : MemoryBTree, mem_utils : MemoryUtils<K, V>, key : K) : Nat {
-        let key_blob = mem_utils.0.to_blob(key);
-        let (leaf_address, index_pos) = Methods.get_leaf_node_and_index(btree, mem_utils, key_blob);
+    public func getIndex<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : K) : Nat {
+        let key_blob = btree_utils.key.to_blob(key);
+        let (leaf_address, index_pos) = Methods.get_leaf_node_and_index(btree, btree_utils, key_blob);
 
-        // Leaf.display(btree, mem_utils, leaf_address);
-        Debug.print("leaf_address: " # debug_show Leaf.from_memory(btree,  leaf_address));
-        Debug.print("index_pos: " # debug_show index_pos);
-        Debug.print("key_blob: " # debug_show key_blob);
+        // Leaf.display(btree, btree_utils, leaf_address);
+        // Debug.print("leaf_address: " # debug_show Leaf.from_memory(btree,  leaf_address));
+        // Debug.print("index_pos: " # debug_show index_pos);
+        // Debug.print("key_blob: " # debug_show key_blob);
         let count = Leaf.get_count(btree, leaf_address);
-        let int_index = switch (mem_utils.2) {
-            case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, leaf_address, cmp, key, count);
+        let int_index = switch (btree_utils.cmp) {
+            case (#cmp(cmp)) Leaf.binary_search<K, V>(btree, btree_utils, leaf_address, cmp, key, count);
             case (#blob_cmp(cmp)) {
                 Leaf.binary_search_blob_seq(btree, leaf_address, cmp, key_blob, count);
             };
         };
 
-        Debug.print("int_index: " # debug_show int_index);
+        // Debug.print("int_index: " # debug_show int_index);
 
         if (int_index < 0) {
             Debug.trap("getIndex(): key does not exist in the tree. Try using getCeiling() or getFloor() to get the closest key");
@@ -743,7 +720,7 @@ module {
         index_pos + Int.abs(int_index);
     };
 
-    public func range<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>, start:Nat, end:Nat): RevIter<(K, V)>{
+    public func range<K, V>(btree: MemoryBTree, btree_utils: BTreeUtils<K, V>, start:Nat, end:Nat): RevIter<(K, V)>{
         let (start_node, start_node_index) = Methods.get_leaf_node_by_index(btree, start);
         let (end_node, end_node_index) = Methods.get_leaf_node_by_index(btree, end);
 
@@ -753,26 +730,25 @@ module {
         RevIter.map<(Blob, Blob), (K, V)>(
             Methods.new_blobs_iterator(btree, start_node, start_index, end_node, end_index),
             func((key_blob, val_blob) : (Blob, Blob)) : (K, V) {
-                Methods.deserialize_kv_blobs<K, V>(mem_utils, key_blob, val_blob);
+                Methods.deserialize_kv_blobs<K, V>(btree_utils, key_blob, val_blob);
             },
         );
     };
 
-    public func scan<K, V>(btree: MemoryBTree, mem_utils: MemoryUtils<K, V>, start:?K, end:?K): RevIter<(K, V)>{
-
+    public func scan<K, V>(btree: MemoryBTree, btree_utils: BTreeUtils<K, V>, start:?K, end:?K): RevIter<(K, V)>{
         let start_address = switch(start){
             case(?key) {
-                let key_blob = mem_utils.0.to_blob(key);
-                Methods.get_leaf_address(btree, mem_utils, key, ?key_blob);
+                let key_blob = btree_utils.key.to_blob(key);
+                Methods.get_leaf_address(btree, btree_utils, key, ?key_blob);
             };
             case(null) Methods.get_min_leaf_address(btree);
         };
 
         let start_index = switch(start){
-            case(?key) switch(mem_utils.2){
-                case(#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, start_address, cmp, key, Leaf.get_count(btree, start_address));
+            case(?key) switch(btree_utils.cmp){
+                case(#cmp(cmp)) Leaf.binary_search<K, V>(btree, btree_utils, start_address, cmp, key, Leaf.get_count(btree, start_address));
                 case(#blob_cmp(cmp)) {
-                    let key_blob = mem_utils.0.to_blob(key);
+                    let key_blob = btree_utils.key.to_blob(key);
                     Leaf.binary_search_blob_seq(btree, start_address, cmp, key_blob, Leaf.get_count(btree, start_address));
                 };
             };
@@ -785,17 +761,17 @@ module {
 
         let end_address = switch(end){
             case(?key) {
-                let key_blob = mem_utils.0.to_blob(key);
-                Methods.get_leaf_address(btree, mem_utils, key, ?key_blob);
+                let key_blob = btree_utils.key.to_blob(key);
+                Methods.get_leaf_address(btree, btree_utils, key, ?key_blob);
             };
             case(null) Methods.get_max_leaf_address(btree);
         };
 
         let end_index = switch(end){
-            case(?key) switch(mem_utils.2){
-                case(#cmp(cmp)) Leaf.binary_search<K, V>(btree, mem_utils, end_address, cmp, key, Leaf.get_count(btree, end_address));
+            case(?key) switch(btree_utils.cmp){
+                case(#cmp(cmp)) Leaf.binary_search<K, V>(btree, btree_utils, end_address, cmp, key, Leaf.get_count(btree, end_address));
                 case(#blob_cmp(cmp)) {
-                    let key_blob = mem_utils.0.to_blob(key);
+                    let key_blob = btree_utils.key.to_blob(key);
                     Leaf.binary_search_blob_seq(btree, end_address, cmp, key_blob, Leaf.get_count(btree, end_address));
                 };
             };
@@ -807,7 +783,7 @@ module {
         RevIter.map<(Blob, Blob), (K, V)>(
             Methods.new_blobs_iterator(btree, start_address, i, end_address, j),
             func((key_blob, val_blob) : (Blob, Blob)) : (K, V) {
-                Methods.deserialize_kv_blobs<K, V>(mem_utils, key_blob, val_blob);
+                Methods.deserialize_kv_blobs<K, V>(btree_utils, key_blob, val_blob);
             },
         );
     };

@@ -21,11 +21,11 @@ module {
 
     public type MemoryCmp<A> = MemoryCmp.MemoryCmp<A>;
 
-    public type MemoryUtils<K, V> = (
-        key : Blobify<K>,
-        value : Blobify<V>,
-        cmp : MemoryCmp<K>,
-    );
+    public type BTreeUtils<K, V> =  {
+        key: Blobify<K>;
+        val: Blobify<V>;
+        cmp: MemoryCmp<K>;
+    };
 
     public type NodeType = {
         #branch;

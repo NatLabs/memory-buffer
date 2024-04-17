@@ -1,7 +1,13 @@
-## MemoryBuffer
-A persistent buffer implementation in motoko which makes use of the [memory-region](https://github.com/NatLabs/memory-region) library for re-allocating stable memory. The **MemoryBuffer** addresses the limitatons of heap storage by storing its elements in stable memory, which has the capacity to store significantly more data, up to 400 GiB.
+## Memory-Collection
+A collection of persistent data structures in motoko that store their data in stable memory. These data structures address the heap storage limitations by allowing developers to leverage the 400GB capacity available in stable memory.
 
-> Note that this library is still in development and hasn't been tested for production use. If you find any bugs or have any suggestions, please open an issue [here](https://github.com/NatLabs/memory-buffer/issues).
+### Data Structures
+- `MemoryBuffer`: A persistent buffer.
+- `MemoryBTree`: A persistent B-Tree.
+- `MemoryDeque`: A persistent double ended queue with O(1) random access like a buffer.
+
+
+## MemoryBuffer
 
 ### How It Works
 The buffer is built using two [Region](https://internetcomputer.org/docs/current/motoko/main/base/Region/) modules:

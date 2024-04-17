@@ -4,10 +4,11 @@ import Nat "mo:base/Nat";
 
 import RevIter "mo:itertools/RevIter";
 
-import Blobify "Blobify";
-import MemoryBuffer "MemoryBuffer";
-import VersionedMemoryBuffer "VersionedMemoryBuffer";
+import Blobify "../Blobify";
+import MemoryBuffer "Base";
+import VersionedMemoryBuffer "Versioned";
 import Migrations "Migrations";
+import MemoryCmp "../MemoryCmp";
 
 module {
 
@@ -54,8 +55,7 @@ module {
         public func remove(i: Nat) : A = MemoryBuffer.remove<A>(internal, blobify, i);
         public func removeLast() : ?A = MemoryBuffer.removeLast<A>(internal, blobify);
         public func insert(i: Nat, elem: A) = MemoryBuffer.insert<A>(internal, blobify, i, elem);
-        public func sortUnstable(cmp: (A, A) -> Order) = MemoryBuffer.sortUnstable<A>(internal, blobify, cmp);
-        public func blobSortUnstable(cmp: (Blob, Blob) -> Order) = MemoryBuffer.blobSortUnstable<A>(internal, cmp);
+        public func sortUnstable(cmp: MemoryCmp.MemoryCmp<A> ) = MemoryBuffer.sortUnstable<A>(internal, blobify, cmp);
 
         public func clear() = MemoryBuffer.clear<A>(internal);
         public func toArray() : [A] = MemoryBuffer.toArray<A>(internal, blobify);

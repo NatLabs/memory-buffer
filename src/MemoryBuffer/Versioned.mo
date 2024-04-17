@@ -8,9 +8,10 @@ import Order "mo:base/Order";
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import RevIter "mo:itertools/RevIter";
 
-import Blobify "Blobify";
-import MemoryBuffer "MemoryBuffer";
+import Blobify "../Blobify";
+import MemoryBuffer "Base";
 import Migrations "Migrations";
+import MemoryCmp "../MemoryCmp";
 
 module VersionedMemoryBuffer {
     type Iter<A> = Iter.Iter<A>;
@@ -188,14 +189,9 @@ module VersionedMemoryBuffer {
         MemoryBuffer.insert(state, blobify, index, value);
     };
 
-    public func sortUnstable<A>(self : VersionedMemoryBuffer<A>, blobify : Blobify<A>, cmp : (A, A) -> Order) {
+    public func sortUnstable<A>(self : VersionedMemoryBuffer<A>, blobify : Blobify<A>, cmp : MemoryCmp.MemoryCmp<A> ) {
         let state = Migrations.getCurrentVersion(self);
         MemoryBuffer.sortUnstable(state, blobify, cmp);
-    };
-
-    public func blobSortUnstable<A>(self : VersionedMemoryBuffer<A>, cmp : (Blob, Blob) -> Order) {
-        let state = Migrations.getCurrentVersion(self);
-        MemoryBuffer.blobSortUnstable(state, cmp);
     };
 
     public func toArray<A>(self : VersionedMemoryBuffer<A>, blobify : Blobify<A>) : [A] {

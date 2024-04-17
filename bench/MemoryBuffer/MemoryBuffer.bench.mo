@@ -11,12 +11,14 @@ import { MemoryRegion } "mo:memory-region";
 import Bench "mo:bench";
 import Fuzz "mo:fuzz";
 
-import Blobify "../src/Blobify";
-import MemoryBuffer "../src/MemoryBuffer";
-import VersionedMemoryBuffer "../src/VersionedMemoryBuffer";
-import MemoryBufferClass "../src/MemoryBufferClass";
+import Blobify "../../src/Blobify";
+import MemoryBuffer "../../src/MemoryBuffer/Base";
+import VersionedMemoryBuffer "../../src/MemoryBuffer/Versioned";
+import MemoryBufferClass "../../src/MemoryBuffer/Class";
 
-import Utils "../src/Utils";
+import Utils "../../src/Utils";
+import MemoryCmp "../../src/MemoryCmp";
+import Cmp "../../src/Int8Cmp";
 module {
 
     let candid_blobify : Blobify.Blobify<Nat> = {
@@ -51,7 +53,8 @@ module {
             "reverse()",
             "remove()",
             "insert()",
-            "blobSortUnstable()",
+            "sortUnstable()",
+            "sortUnstable() (#blob_cmp)",
         ]);
 
         let limit = 10_000;
@@ -124,7 +127,7 @@ module {
                 case ("Buffer", "sortUnstable()") {
                     buffer.sort(Nat.compare);
                 };
-                case ("Buffer", "blobSortUnstable()") { };
+                case ("Buffer", "sortUnstable() (#blob_cmp)") { };
 
                 case ("Buffer", "removeLast()") {
                     for (_ in Iter.range(0, limit - 1)) {
@@ -204,10 +207,10 @@ module {
                     MemoryBuffer.reverse(cbuffer);
                 };
                 case("MemoryBuffer (encode to candid)", "sortUnstable()") {
-                    MemoryBuffer.sortUnstable(cbuffer, candid_blobify, Nat.compare);
+                    MemoryBuffer.sortUnstable(cbuffer, candid_blobify, #cmp(Cmp.Nat));
                 };
-                case("MemoryBuffer (encode to candid)", "blobSortUnstable()") {
-                    MemoryBuffer.blobSortUnstable(cbuffer, Blob.compare);
+                case("MemoryBuffer (encode to candid)", "sortUnstable() (#blob_cmp)") {
+                    
                 };
                 case ("MemoryBuffer (encode to candid)", "removeLast()") {
                     for (_ in Iter.range(0, limit - 1)) {
@@ -218,7 +221,7 @@ module {
                 case ("MemoryBuffer (with Blobify)", "add()" or "add() reallocation") {
                     for (i in Iter.range(0, limit - 1)) {
                         let val = values.get(i);
-                        MemoryBuffer.add(mbuffer, Blobify.Nat, val);
+                        MemoryBuffer.add(mbuffer, Blobify.BigEndian.Nat, val);
                     };
 
                     Debug.print("mbuffer bytes: " # debug_show MemoryBuffer.bytes(mbuffer));
@@ -229,14 +232,14 @@ module {
                 };
                 case ("MemoryBuffer (with Blobify)", "get()") {
                     for (i in Iter.range(0, limit - 1)) {
-                        ignore MemoryBuffer.get(mbuffer, Blobify.Nat, i);
+                        ignore MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
                     };
                     
                 };
                 case ("MemoryBuffer (with Blobify)", "put() (new == prev)") {
                     for (i in order.vals()) {
                         let val = values.get(i);
-                        MemoryBuffer.put(mbuffer, Blobify.Nat, i, val);
+                        MemoryBuffer.put(mbuffer, Blobify.BigEndian.Nat, i, val);
                     };
                     Debug.print("mbuffer bytes: " # debug_show MemoryBuffer.bytes(mbuffer));
                     Debug.print("mbuffer metadataBytes: " # debug_show MemoryBuffer.metadataBytes(mbuffer));
@@ -247,7 +250,7 @@ module {
                 case ("MemoryBuffer (with Blobify)", "put() (new > prev)") {
                     for (i in order.vals()) {
                         let val = greater.get(i);
-                        MemoryBuffer.put(mbuffer, Blobify.Nat, i, val);
+                        MemoryBuffer.put(mbuffer, Blobify.BigEndian.Nat, i, val);
                     };
                     Debug.print("mbuffer bytes: " # debug_show MemoryBuffer.bytes(mbuffer));
                     Debug.print("mbuffer metadataBytes: " # debug_show MemoryBuffer.metadataBytes(mbuffer));
@@ -258,7 +261,7 @@ module {
                 case ("MemoryBuffer (with Blobify)", "put() (new < prev)") {
                     for (i in order.vals()) {
                         let val = less.get(i);
-                        MemoryBuffer.put(mbuffer, Blobify.Nat, i, val);
+                        MemoryBuffer.put(mbuffer, Blobify.BigEndian.Nat, i, val);
                     };
                     Debug.print("mbuffer bytes: " # debug_show MemoryBuffer.bytes(mbuffer));
                     Debug.print("mbuffer metadataBytes: " # debug_show MemoryBuffer.metadataBytes(mbuffer));
@@ -270,7 +273,7 @@ module {
                     for (i in order.vals()) {
                         let j = Nat.min(i, MemoryBuffer.size(mbuffer) - 1);
 
-                        ignore MemoryBuffer.remove(mbuffer, Blobify.Nat, j);
+                        ignore MemoryBuffer.remove(mbuffer, Blobify.BigEndian.Nat, j);
                     };
                     Debug.print("mbuffer bytes: " # debug_show MemoryBuffer.bytes(mbuffer));
                     Debug.print("mbuffer metadataBytes: " # debug_show MemoryBuffer.metadataBytes(mbuffer));
@@ -280,21 +283,21 @@ module {
                 };
                 case ("MemoryBuffer (with Blobify)", "insert()") {
                     for (i in order.vals()) {
-                        MemoryBuffer.insert(mbuffer, Blobify.Nat, Nat.min(i, MemoryBuffer.size(mbuffer)), i ** 3);
+                        MemoryBuffer.insert(mbuffer, Blobify.BigEndian.Nat, Nat.min(i, MemoryBuffer.size(mbuffer)), i ** 3);
                     };
                 };
                 case("MemoryBuffer (with Blobify)", "reverse()") {
                     MemoryBuffer.reverse(mbuffer);
                 };
                 case("MemoryBuffer (with Blobify)", "sortUnstable()") {
-                    MemoryBuffer.sortUnstable(mbuffer, Blobify.Nat, Nat.compare);
+                    MemoryBuffer.sortUnstable(mbuffer, Blobify.BigEndian.Nat, #cmp(Cmp.Nat));
                 };
-                case("MemoryBuffer (with Blobify)", "blobSortUnstable()") {
-                    MemoryBuffer.blobSortUnstable(mbuffer, Blob.compare);
+                case("MemoryBuffer (with Blobify)", "sortUnstable() (#blob_cmp)") {
+                    MemoryBuffer.sortUnstable(mbuffer, Blobify.BigEndian.Nat, MemoryCmp.BigEndian.Nat);
                 };
                 case ("MemoryBuffer (with Blobify)", "removeLast()") {
                     for (_ in Iter.range(0, limit - 1)) {
-                        ignore MemoryBuffer.removeLast(mbuffer, Blobify.Nat);
+                        ignore MemoryBuffer.removeLast(mbuffer, Blobify.BigEndian.Nat);
                     };
                 };
 

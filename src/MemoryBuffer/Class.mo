@@ -56,6 +56,7 @@ module {
         public func removeLast() : ?A = MemoryBuffer.removeLast<A>(internal, blobify);
         public func insert(i: Nat, elem: A) = MemoryBuffer.insert<A>(internal, blobify, i, elem);
         public func sortUnstable(cmp: MemoryCmp.MemoryCmp<A> ) = MemoryBuffer.sortUnstable<A>(internal, blobify, cmp);
+        public func shuffle() = MemoryBuffer.shuffle<A>(internal);
 
         public func clear() = MemoryBuffer.clear<A>(internal);
         public func toArray() : [A] = MemoryBuffer.toArray<A>(internal, blobify);

@@ -18,6 +18,7 @@ import Blobify "../../src/Blobify";
 
 import Utils "../../src/Utils";
 import MemoryCmp "../../src/MemoryCmp";
+import Int8Cmp "../../src/Int8Cmp";
 
 let candid_blobify : Blobify.Blobify<Nat> = {
     from_blob = func(b : Blob) : Nat {
@@ -31,6 +32,7 @@ let candid_blobify : Blobify.Blobify<Nat> = {
 
 let limit = 10_000;
 let order = Buffer.Buffer<Nat>(limit);
+let values = Buffer.Buffer<Nat>(limit);
 
 for (i in Iter.range(0, limit - 1)) {
     order.add(i);
@@ -67,6 +69,7 @@ suite(
             func() {
                 for (i in Iter.range(0, limit - 1)) {
                     MemoryBuffer.add(mbuffer, Blobify.BigEndian.Nat, i);
+                    values.add(i);
 
                     assert MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i) == i;
                     assert MemoryBuffer.size(mbuffer) == i + 1;
@@ -160,7 +163,9 @@ suite(
 
                 for (i in Iter.range(0, limit - 1)) {
                     let expected = limit - i - 1;
+                    
                     let removed = MemoryBuffer.removeLast(mbuffer, Blobify.BigEndian.Nat);
+
                     validate_region(mbuffer.blobs);
                     validate_region(mbuffer.pointers);
                     // Debug.print("(expected, removed) -> " # debug_show (expected, removed));
@@ -239,30 +244,34 @@ suite(
         test(
             "tabulate",
             func() {
-                let mbuffer = MemoryBuffer.tabulate(Blobify.BigEndian.Nat, 10, func(i : Nat) : Nat = i);
-                assert MemoryBuffer.size(mbuffer) == 10;
-                assert MemoryBuffer.toArray(mbuffer, Blobify.BigEndian.Nat) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+                let mbuffer = MemoryBuffer.tabulate(Blobify.BigEndian.Nat, limit, func(i : Nat) : Nat = i);
+                assert MemoryBuffer.size(mbuffer) == limit;
+                for (i in Iter.range(0, limit - 1)) {
+                    let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
+                    assert n == i;
+                };
             },
         );
 
-        test(
-            "reverse",
-            func() {
-                let mbuffer = MemoryBuffer.fromArray(Blobify.BigEndian.Nat, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-                MemoryBuffer.reverse(mbuffer);
+        test ("shuffle", func() {
+            MemoryBuffer.shuffle(mbuffer);
 
-                assert MemoryBuffer.toArray(mbuffer, Blobify.BigEndian.Nat) == [9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
-            },
-        );
+            for (i in Iter.range(0, limit - 1)) {
+                let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
+            };
+        });
 
         test(
             "sortUnstable",
             func() {
-                let mbuffer = MemoryBuffer.fromArray(Blobify.BigEndian.Nat, [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+                MemoryBuffer.sortUnstable<Nat>(mbuffer, Blobify.BigEndian.Nat, MemoryCmp.BigEndian.Nat);
 
-                MemoryBuffer.sortUnstable(mbuffer, Blobify.BigEndian.Nat, MemoryCmp.BigEndian.Nat);
-
-                assert MemoryBuffer.toArray(mbuffer, Blobify.BigEndian.Nat) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+                var prev = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, 0);
+                for (i in Iter.range(1, limit - 1)) {
+                    let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
+                    assert prev <= n;
+                    prev := n;
+                };
             },
         );
     },

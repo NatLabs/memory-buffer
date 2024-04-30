@@ -15,7 +15,6 @@ module Migrations {
     type MemoryRegionV0 = MemoryRegion.MemoryRegionV0;
     type MemoryRegionV1 = MemoryRegion.MemoryRegionV1;
 
-    type Pointer = MemoryRegion.Pointer;
     type Order = Order.Order;
 
     // current version of the memory buffer

@@ -5,6 +5,7 @@ import Nat "mo:base/Nat";
 import Blob "mo:base/Blob";
 import Debug "mo:base/Debug";
 import Prelude "mo:base/Prelude";
+import Float "mo:base/Float";
 
 import { MemoryRegion } "mo:memory-region";
 
@@ -44,16 +45,16 @@ module {
         ]);
         bench.rows([
             "add()",
-            "get()",
-            "put() (new == prev)",
-            "put() (new > prev)",
-            "put() (new < prev)",
-            "add() reallocation",
-            "removeLast()",
-            "reverse()",
-            "remove()",
-            "insert()",
+            // "get()",
+            // "put() (new == prev)",
+            // "put() (new < prev)",
+            // "add() reallocation",
+            // "removeLast()",
+            // "reverse()",
+            // "remove()",
+            // "insert()",
             "sortUnstable()",
+            "shuffle()",
             "sortUnstable() (#blob_cmp)",
         ]);
 
@@ -67,14 +68,27 @@ module {
         
         let order = Buffer.Buffer<Nat>(limit);
         let values = Buffer.Buffer<Nat>(limit);
+        let values2 = Buffer.Buffer<Nat>(limit);
         let greater = Buffer.Buffer<Nat>(limit);
         let less = Buffer.Buffer<Nat>(limit);
 
+        func logn(number : Float, base : Float) : Float {
+            Float.log(number) / Float.log(base);
+        };
+
         for (i in Iter.range(0, limit - 1)) {
+            let n1 = fuzz.nat.randomRange(0, limit ** 2);
+            let n2 = fuzz.nat.randomRange(0, limit ** 2);
+
             order.add(i);
-            values.add(i ** 2);
-            greater.add(i ** 3);
-            less.add(i);
+            values.add(n1);
+            values2.add(n2);
+            greater.add(n1 ** 2);
+
+            let log : Nat = logn(Float.fromInt(n1), 2) 
+                |> Float.toInt(_) 
+                |> Int.abs(_);
+            less.add(log);
         };
 
         fuzz.buffer.shuffle(order);
@@ -95,7 +109,7 @@ module {
                 };
                 case ("Buffer", "put() (new == prev)") {
                     for (i in Iter.range(0, limit - 1)) {
-                        let val = values.get(i);
+                        let val = values2.get(i);
                         buffer.put(i, val);
                     };
                 };
@@ -128,12 +142,13 @@ module {
                     buffer.sort(Nat.compare);
                 };
                 case ("Buffer", "sortUnstable() (#blob_cmp)") { };
-
+                case ("Buffer", "shuffle()") {
+                    // fuzz.buffer.shuffle(buffer);
+                };
                 case ("Buffer", "removeLast()") {
                     for (_ in Iter.range(0, limit - 1)) {
                         ignore buffer.removeLast();
                     };
-
                 };
 
                 case ("MemoryBuffer (encode to candid)", "add()" or "add() reallocation") {
@@ -155,7 +170,7 @@ module {
                 };
                 case ("MemoryBuffer (encode to candid)", "put() (new == prev)") {
                     for (i in order.vals()) {
-                        let val = values.get(i);
+                        let val = values2.get(i);
                         MemoryBuffer.put(cbuffer, candid_blobify, i, val);
                     };
                     Debug.print("cbuffer bytes: " # debug_show MemoryBuffer.bytes(cbuffer));
@@ -209,8 +224,9 @@ module {
                 case("MemoryBuffer (encode to candid)", "sortUnstable()") {
                     MemoryBuffer.sortUnstable(cbuffer, candid_blobify, #cmp(Cmp.Nat));
                 };
-                case("MemoryBuffer (encode to candid)", "sortUnstable() (#blob_cmp)") {
-                    
+                case("MemoryBuffer (encode to candid)", "sortUnstable() (#blob_cmp)") {};
+                case ("MemoryBuffer (encode to candid)", "shuffle()") {
+                    MemoryBuffer.shuffle(cbuffer);
                 };
                 case ("MemoryBuffer (encode to candid)", "removeLast()") {
                     for (_ in Iter.range(0, limit - 1)) {
@@ -238,7 +254,7 @@ module {
                 };
                 case ("MemoryBuffer (with Blobify)", "put() (new == prev)") {
                     for (i in order.vals()) {
-                        let val = values.get(i);
+                        let val = values2.get(i);
                         MemoryBuffer.put(mbuffer, Blobify.BigEndian.Nat, i, val);
                     };
                     Debug.print("mbuffer bytes: " # debug_show MemoryBuffer.bytes(mbuffer));
@@ -292,8 +308,11 @@ module {
                 case("MemoryBuffer (with Blobify)", "sortUnstable()") {
                     MemoryBuffer.sortUnstable(mbuffer, Blobify.BigEndian.Nat, #cmp(Cmp.Nat));
                 };
+                case("MemoryBuffer (with Blobify)", "shuffle()") {
+                    MemoryBuffer.shuffle(mbuffer);
+                };
                 case("MemoryBuffer (with Blobify)", "sortUnstable() (#blob_cmp)") {
-                    MemoryBuffer.sortUnstable(mbuffer, Blobify.BigEndian.Nat, MemoryCmp.BigEndian.Nat);
+                    MemoryBuffer.sortUnstable(mbuffer, Blobify.BigEndian.Nat, #blob_cmp(Cmp.Blob));
                 };
                 case ("MemoryBuffer (with Blobify)", "removeLast()") {
                     for (_ in Iter.range(0, limit - 1)) {

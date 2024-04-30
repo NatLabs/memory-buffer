@@ -22,7 +22,6 @@ module VersionedMemoryBuffer {
     type MemoryRegionV0 = MemoryRegion.MemoryRegionV0;
     type MemoryRegionV1 = MemoryRegion.MemoryRegionV1;
 
-    type Pointer = MemoryRegion.Pointer;
     type Order = Order.Order;
 
     public type Blobify<A> = Blobify.Blobify<A>;
@@ -192,6 +191,11 @@ module VersionedMemoryBuffer {
     public func sortUnstable<A>(self : VersionedMemoryBuffer<A>, blobify : Blobify<A>, cmp : MemoryCmp.MemoryCmp<A> ) {
         let state = Migrations.getCurrentVersion(self);
         MemoryBuffer.sortUnstable(state, blobify, cmp);
+    };
+
+    public func shuffle<A>(self : VersionedMemoryBuffer<A>) {
+        let state = Migrations.getCurrentVersion(self);
+        MemoryBuffer.shuffle(state);
     };
 
     public func toArray<A>(self : VersionedMemoryBuffer<A>, blobify : Blobify<A>) : [A] {

@@ -11,6 +11,8 @@ import Nat64 "mo:base/Nat64";
 import Blob "mo:base/Blob";
 import Result "mo:base/Result";
 import Order "mo:base/Order";
+import Fuzz "mo:fuzz";
+import FuzzNat "mo:fuzz/Nat";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import RevIter "mo:itertools/RevIter";
@@ -25,7 +27,6 @@ module MemoryBuffer {
     type RevIter<A> = RevIter.RevIter<A>;
     type Result<A, B> = Result.Result<A, B>;
     type MemoryRegion = MemoryRegion.MemoryRegion;
-    type Pointer = MemoryRegion.Pointer;
     type Order = Order.Order;
 
     public type MemoryBufferRegion = {
@@ -283,14 +284,14 @@ module MemoryBuffer {
     public func _get_blob<A>(self : MemoryBuffer<A>, index : Nat) : Blob {
         let address = _get_memory_address(self, index);
         let size = _get_memory_size(self, index);
-
         let blob = MemoryRegion.loadBlob(self.blobs, address, size);
         blob;
     };
 
     func _get<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) : A {
         let blob = _get_blob(self, index);
-        blobify.from_blob(blob);
+        let val = blobify.from_blob(blob);
+        val
     };
 
     /// Retrieves the value at the given index. Traps if the index is out of bounds.
@@ -707,6 +708,10 @@ module MemoryBuffer {
                 return;
             };
 
+            // select middle element as pivot
+            // let mid = (start + end) / 2;
+            // swap(mbuffer, start, mid);
+
             var pivot = start;
             var i = start + 1;
             var j = start + 1;
@@ -745,6 +750,43 @@ module MemoryBuffer {
         };
 
         partition(self, mem_cmp, 0, self.count);
+
+    };
+
+
+    /// Randomizes the order of the values in the buffer.
+    public func shuffle<A>(self : MemoryBuffer<A>) {
+        // shuffle utility functions ported from https://mops.one/fuzz for performance reasons
+        
+        if (self.count == 0) return;
+
+        let prime = 456209410580464648418198177201;
+		let prime2 = 4451889979529614097557895687536048212109;
+
+        let seed = 0x7eadbeaf;
+        var rand = seed;
+
+        var i = 0;
+        var end = self.count;
+
+        while (i + 1 < end) {
+            let start = i + 1;
+            let dist = end - start : Nat;
+            
+            let j = if (dist == 1) start else {
+                rand := (seed * prime + 5) % prime2;
+
+                let max = end - 1;
+                let min = start;
+
+                let n_from_range = rand % (max - min + 1) + min;
+			    Int.abs(n_from_range);
+            };
+
+            swap(self, i, j);
+
+            i += 1;
+        };
 
     };
 

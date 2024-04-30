@@ -11,6 +11,7 @@ import MemoryCmp "../../MemoryCmp";
 module {
     public type Address = Nat;
     type Size = Nat;
+    public type UniqueId = Nat;
 
     public type MemoryBlock = (Address, Size);
 

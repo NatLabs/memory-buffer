@@ -74,6 +74,8 @@ module Blobify {
                 Base.Blob.fromArray(arr);
             };
             from_blob = func(blob : Blob) : Nat {
+                if (blob == "") Debug.trap("from_blob() on Blobify.Nat failed to decode empty blob");
+
                 var n = 0;
                 let bytes = Base.Blob.toArray(blob);
 
@@ -228,6 +230,8 @@ module Blobify {
             Base.Blob.fromArray(arr);
         };
         from_blob = func(blob : Blob) : Nat {
+            if (blob == "") Debug.trap("from_blob() on Blobify.Nat failed to decode empty blob");
+
             var n = 0;
             let bytes = Base.Blob.toArray(blob);
 

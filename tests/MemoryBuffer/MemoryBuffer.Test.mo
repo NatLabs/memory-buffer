@@ -74,7 +74,7 @@ suite(
                     assert MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i) == i;
                     assert MemoryBuffer.size(mbuffer) == i + 1;
 
-                    assert MemoryRegion.size(mbuffer.pointers) == 64 + (MemoryBuffer.size(mbuffer) * 12);
+                    // assert MemoryRegion.size(mbuffer.pointers) == 64 + (MemoryBuffer.size(mbuffer) * 12);
                 };
 
                 assert ?(MemoryRegion.size(mbuffer.blobs) - 64) == Itertools.sum(
@@ -163,7 +163,7 @@ suite(
 
                 for (i in Iter.range(0, limit - 1)) {
                     let expected = limit - i - 1;
-                    
+
                     let removed = MemoryBuffer.removeLast(mbuffer, Blobify.BigEndian.Nat);
 
                     validate_region(mbuffer.blobs);
@@ -235,8 +235,127 @@ suite(
 
                 for (i in order.vals()) {
                     let j = Nat.min(i, MemoryBuffer.size(mbuffer));
+                    // Debug.print("inserting i = " # debug_show i # " at index " # debug_show j);
+
                     MemoryBuffer.insert(mbuffer, Blobify.BigEndian.Nat, j, i);
-                    assert MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, j) == i;
+                    let received = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, j);
+                    if (received != i) {
+                        Debug.print("mismatch at i = " # debug_show i);
+                        Debug.print("(exprected, received) -> " # debug_show (i, received));
+                        assert false;
+                    };
+                    // assert MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, j) == i;
+                };
+            },
+        );
+
+        test(
+            "shuffle",
+            func() {
+                MemoryBuffer.shuffle(mbuffer);
+
+                for (i in Iter.range(0, limit - 1)) {
+                    let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
+                };
+            },
+        );
+
+        test(
+            "sortUnstable",
+            func() {
+                MemoryBuffer.sortUnstable<Nat>(mbuffer, Blobify.BigEndian.Nat, MemoryCmp.BigEndian.Nat);
+
+                var prev = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, 0);
+                for (i in Iter.range(1, limit - 1)) {
+                    let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
+                    assert prev <= n;
+                    prev := n;
+                };
+            },
+        );
+
+        test(
+            "clear()",
+            func() {
+                MemoryBuffer.clear(mbuffer);
+                assert MemoryBuffer.size(mbuffer) == 0;
+            },
+        );
+
+        test(
+            "addFirst()",
+            func() {
+                for (i in Iter.range(0, limit - 1)) {
+                    MemoryBuffer.addFirst(mbuffer, Blobify.BigEndian.Nat, i);
+                    assert MemoryBuffer.peekFirst(mbuffer, Blobify.BigEndian.Nat) == ?i;
+                    assert MemoryBuffer.first(mbuffer, Blobify.BigEndian.Nat) == i;
+                };
+            },
+        );
+
+        test(
+            "removeLast()",
+            func() {
+                for (i in Iter.range(0, limit - 1)) {
+                    let expected = i;
+                    let received = MemoryBuffer.removeLast(mbuffer, Blobify.BigEndian.Nat);
+                    assert ?expected == received;
+                };
+            },
+        );
+
+        test(
+            "addLast()",
+            func() {
+                for (i in Iter.range(0, limit - 1)) {
+                    MemoryBuffer.addLast(mbuffer, Blobify.BigEndian.Nat, i);
+                    assert MemoryBuffer.peekLast(mbuffer, Blobify.BigEndian.Nat) == ?i;
+                    assert MemoryBuffer.last(mbuffer, Blobify.BigEndian.Nat) == i;
+                };
+            },
+        );
+
+        test(
+            "removeFirst()",
+            func() {
+                for (i in Iter.range(0, limit - 1)) {
+                    let expected = i;
+                    let received = MemoryBuffer.removeFirst(mbuffer, Blobify.BigEndian.Nat);
+                    assert ?expected == received;
+                };
+            },
+        );
+
+        test(
+            "addFromIter",
+            func() {
+                let iter = Iter.range(0, limit - 1);
+                MemoryBuffer.addFromIter(mbuffer, Blobify.BigEndian.Nat, iter);
+                for (i in Iter.range(0, limit - 1)) {
+                    let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
+                    assert n == i;
+                };
+            },
+        );
+
+        test(
+            "indexOf",
+            func() {
+                let arr : [Nat] = [3, 782, 910, 1289, 4782, 9999];
+                for (i in arr.vals()) {
+                    let index = MemoryBuffer.indexOf<Nat>(mbuffer, Blobify.BigEndian.Nat, Nat.equal, i);
+                    assert index == ?i;
+                };
+            },
+        );
+
+        test(
+            "items()",
+            func() {
+                let items = MemoryBuffer.items(mbuffer, Blobify.BigEndian.Nat);
+                for (i in Iter.range(0, limit - 1)) {
+                    let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
+                    assert ?(i, n) == items.next();
                 };
             },
         );
@@ -253,26 +372,5 @@ suite(
             },
         );
 
-        test ("shuffle", func() {
-            MemoryBuffer.shuffle(mbuffer);
-
-            for (i in Iter.range(0, limit - 1)) {
-                let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
-            };
-        });
-
-        test(
-            "sortUnstable",
-            func() {
-                MemoryBuffer.sortUnstable<Nat>(mbuffer, Blobify.BigEndian.Nat, MemoryCmp.BigEndian.Nat);
-
-                var prev = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, 0);
-                for (i in Iter.range(1, limit - 1)) {
-                    let n = MemoryBuffer.get(mbuffer, Blobify.BigEndian.Nat, i);
-                    assert prev <= n;
-                    prev := n;
-                };
-            },
-        );
     },
 );

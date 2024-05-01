@@ -1,3 +1,12 @@
+/// ![MemoryBlock](./mem-block.png)
+/// Instructions
+/// 
+/// |                            |    insert() |       get() |   replace() |  entries() |      remove() |
+/// | :------------------------- | ----------: | ----------: | ----------: | ---------: | ------------: |
+/// | B+Tree                     | 175_383_943 | 144_101_415 | 154_390_977 |  4_851_558 |   184_602_693 |
+/// | MotokoStableBTree          | 807_443_679 |   3_564_997 | 807_444_791 |     11_835 |     2_817_599 |
+/// | Memory B+Tree (order 4)    | 872_667_810 | 640_728_910 | 961_841_824 | 48_674_343 | 1_065_621_728 |
+
 import Nat "mo:base/Nat";
 import Blob "mo:base/Blob";
 import Nat64 "mo:base/Nat64";
@@ -13,6 +22,14 @@ import Migrations "../Migrations";
 import T "Types";
 
 module MemoryBlock {
+    
+    /// blocks region
+    /// header - 64 bytes
+    /// each entry - 23 bytes
+    /// ---------------------------------------------------------------------------------------
+    /// |      1 byte     |     10 bytes        (8 + 2)    |        12 bytes       (8 + 4)    |
+    /// | reference count | key mem block (address + size) | value mem block (address + size) |
+    /// ---------------------------------------------------------------------------------------
 
     type Address = Nat;
     type MemoryRegion = MemoryRegion.MemoryRegion;
@@ -26,14 +43,7 @@ module MemoryBlock {
 
     let {nhash} = LruCache;
 
-    // blocks region
-    // header - 64 bytes
-    // each entry - 23 bytes
-    // ---------------------------------------------------------------------------------------
-    // |      1 byte     |     10 bytes        (8 + 2)    |        12 bytes       (8 + 4)    |
-    // | reference count | key mem block (address + size) | value mem block (address + size) |
-    // ---------------------------------------------------------------------------------------
-
+    
     let BLOCK_HEADER_SIZE = 64;
     let BLOCK_ENTRY_SIZE = 23;
 

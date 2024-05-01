@@ -46,16 +46,18 @@ module {
         ]);
         
         bench.rows([
-            "add()",
+            "addFirst()",
+            "addLast()",
             "get()",
             "put() (new == prev)",
             "put() (new > prev)",
             "put() (new < prev)",
-            "add() reallocation",
+            "addFirst() reallocation",
+            "addLast() reallocation",
+            "removeFirst()",
             "removeLast()",
-            "reverse()",
-            "remove()",
             "insert()",
+            "remove()",
             "sortUnstable()",
             "shuffle()",
             "sortUnstable() (#blob_cmp)",

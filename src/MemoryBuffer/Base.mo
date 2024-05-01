@@ -1,4 +1,38 @@
-/// A memory buffer is a data structure that stores a sequence of values in memory.
+/// This is the base implementation of a persistent buffer that stores its values in stable memory.
+/// The buffer employs two memory regions to store the values and the pointers to the memory blocks where the values are stored.
+/// The buffer grows by a factor of `√(P)`, where `P` is the total number of pages previously allocated.
+/// 
+/// In addition to the expected buffer functions, the buffer add or remove values from either ends of the buffer in O(1) time.
+/// 
+///
+/// # Memory Region Layout
+/// 
+/// ## Value Blob Region
+/// This region stores the serialized values in the buffer.
+///
+/// |           Field          | Offset | Size |  Type  | Value |                                Description                              |
+/// |--------------------------|--------|------|--------|-------|-------------------------------------------------------------------------|
+/// | Magic Number             |  0     |  3   | Blob   | "BLB" | Magic Number used to identify the Blob Region                           |
+/// | Layout Version           |  3     |  1   | Nat8   | 0     | Layout Version detailing how the data in the region is structured       |
+/// | Buffer Metadata Region   |  4     |  4   | Nat32  | -     | Region Id of the Buffer Metadata Region that it is attached to                 |
+/// | Reserved Header Space    |  8     |  56  | -      | -     | Reserved Space for future use if the layout needs to be updated         |
+/// | Value * `N`              |  64    |  -   | Blob   | -     | N number of arbitrary sized values, serialized and stored in the region |
+/// 
+/// ## Buffer Metadata Region
+/// This region stores the metadata and pointers to the Blob Region.
+///
+/// |           Field          | Offset |   Size    |     Type      |  Value  |                                Description                              |
+/// |--------------------------|--------|-----------|---------------|---------|-------------------------------------------------------------------------|
+/// | Magic Number             |  0     |  3        | Blob          | "BLB"   | Magic Number for identifying the Buffer Region                          |
+/// | Layout Version           |  3     |  1        | Nat8          | 0 or 1  | Layout Version detailing how the data in the region is structured       |
+/// | Blob Region ID           |  4     |  4        | Nat32         | -       | Region Id of the Blob Region attached to itself                         |
+/// | Count                    |  8     |  8        | Nat64         | -       | Number of elements stored in the buffer                                 |
+/// | Start Index              |  16    |  8        | Nat64         | -       | Internal index where the first value is stored in the buffer            |
+/// | Prev Pages Allocated     |  24    |  4        | Nat32         | -       | Number of pages allocated during the resize operation                   |
+/// | Extra Header Space       |  28    |  36       | -             | -       | Reserved Space for future use if the layout needs to be updated         |
+/// | Pointer * `N`            |  64    |  12 * `N` | Nat64 # Nat32 | -       | Pointers to the memory blocks in the Blob Region. It stores the concatenated memory block offset (8 bytes) and size (4 bytes) |
+///
+
 
 import Debug "mo:base/Debug";
 import Array "mo:base/Array";
@@ -11,8 +45,6 @@ import Nat64 "mo:base/Nat64";
 import Blob "mo:base/Blob";
 import Result "mo:base/Result";
 import Order "mo:base/Order";
-import Fuzz "mo:fuzz";
-import FuzzNat "mo:fuzz/Nat";
 
 import MemoryRegion "mo:memory-region/MemoryRegion";
 import RevIter "mo:itertools/RevIter";
@@ -23,6 +55,8 @@ import Migrations "Migrations";
 import MemoryCmp "../MemoryCmp";
 
 module MemoryBuffer {
+
+
     type Iter<A> = Iter.Iter<A>;
     type RevIter<A> = RevIter.RevIter<A>;
     type Result<A, B> = Result.Result<A, B>;
@@ -42,29 +76,10 @@ module MemoryBuffer {
     public let POINTER_SIZE = 12;
     public let LAYOUT_VERSION = 0;
 
-    public let Layout = [
-        {
-            MAGIC_NUMBER_ADDRESS = 0;
-            LAYOUT_VERSION_ADDRESS = 3;
-            REGION_ID_ADDRESS = 4;
-            COUNT_ADDRESS = 8;
-            POINTERS_START = 64;
-            BLOB_START = 64;
-        },
-    ];
-
-    let C = {
-        MAGIC_NUMBER_ADDRESS = 00;
-        LAYOUT_VERSION_ADDRESS = 3;
-        REGION_ID_ADDRESS = 4;
-        COUNT_ADDRESS = 8;
-        POINTERS_START = 64;
-        BLOB_START = 64;
-    };
+    let C = Migrations.Layout.1;
 
     /// The Blobify typeclass is used to serialize and deserialize values.
     public type Blobify<A> = Blobify.Blobify<A>;
-
 
     /// Creates a new memory buffer.
     public func new<A>() : MemoryBuffer<A> {
@@ -72,6 +87,8 @@ module MemoryBuffer {
             pointers = MemoryRegion.new();
             blobs = MemoryRegion.new();
             var count = 0;
+            var start = 0;
+            var prev_pages_allocated = 0;
         };
 
         init_region_header(memory_region);
@@ -79,6 +96,7 @@ module MemoryBuffer {
         memory_region;
     };
 
+    
     func init_region_header<A>(m_region : MemoryBuffer<A>) {
         assert MemoryRegion.size(m_region.blobs) == 0;
         assert MemoryRegion.size(m_region.pointers) == 0;
@@ -96,12 +114,24 @@ module MemoryBuffer {
         MemoryRegion.storeNat8(m_region.pointers, C.LAYOUT_VERSION_ADDRESS, Nat8.fromNat(LAYOUT_VERSION)); // |1 byte | Layout Version (1)
         MemoryRegion.storeNat32(m_region.pointers, C.REGION_ID_ADDRESS, Nat32.fromNat(MemoryRegion.id(m_region.blobs))); // store the blobs region id in the pointers region
         MemoryRegion.storeNat64(m_region.pointers, C.COUNT_ADDRESS, 0); // |8 bytes| Count -> Number of elements in the buffer
+        MemoryRegion.storeNat64(m_region.pointers, C.START_ADDRESS, 0); // |8 bytes| Start Address -> Start of the pointers region
+        MemoryRegion.storeNat32(m_region.pointers, C.PREV_PAGES_ALLOCATED_START, 0); // |4 bytes| Number of pages to allocate when growing the buffer. Increments by 1 each time the buffer grows.
         assert MemoryRegion.size(m_region.pointers) == REGION_HEADER_SIZE;
     };
 
     func update_count<A>(self : MemoryBuffer<A>, count : Nat) {
         self.count := count;
         MemoryRegion.storeNat64(self.pointers, C.COUNT_ADDRESS, Nat64.fromNat(count));
+    };
+
+    func update_start<A>(self: MemoryBuffer<A>, start: Nat) {
+        self.start := start;
+        MemoryRegion.storeNat64(self.pointers, C.START_ADDRESS, Nat64.fromNat(start));
+    };
+
+    func update_prev_pages_allocated<A>(self: MemoryBuffer<A>, pages: Nat) {
+        self.prev_pages_allocated := pages;
+        MemoryRegion.storeNat32(self.pointers, C.PREV_PAGES_ALLOCATED_START, Nat32.fromNat(pages));
     };
 
     public func verify(region : MemoryBufferRegion) : Result<(), Text> {
@@ -196,18 +226,57 @@ module MemoryBuffer {
         return bytes(self) + metadataBytes(self);
     };
 
-    /// Returns the capacity of the metadata region before it needs to grow.
-    public func metadataCapacity<A>(self : MemoryBuffer<A>) : Nat {
-        return MemoryRegion.capacity(self.pointers);
-    };
-
-    /// Returns the capacity of the blobs (value) region before it needs to grow.
+    /// Returns the number of elements that can be stored in the buffer before it needs to grow.
     public func capacity<A>(self : MemoryBuffer<A>) : Nat {
-        return MemoryRegion.capacity(self.blobs);
+        return (MemoryRegion.capacity(self.pointers) - REGION_HEADER_SIZE) / POINTER_SIZE;
     };
 
     public func _get_pointer<A>(_ : MemoryBuffer<A>, index : Nat) : Nat {
         C.POINTERS_START + (index * POINTER_SIZE);
+    };
+
+    func buffer_capacity<A>(self: MemoryBuffer<A>): Nat {
+        (MemoryRegion.capacity(self.pointers) - REGION_HEADER_SIZE) / POINTER_SIZE; 
+    };
+
+    /// Returns the internal index where the value at the given index is stored.
+    public func get_circular_index<A>(self : MemoryBuffer<A>, index : Int) : Nat {
+        Int.abs((self.start + index ) % buffer_capacity(self));
+    };
+
+    func grow_if_needed<A>(self: MemoryBuffer<A>) {
+        if (self.count < buffer_capacity(self)) return;
+
+        let pages_to_allocate = self.prev_pages_allocated + 1;
+        ignore MemoryRegion.grow(self.pointers, pages_to_allocate);
+
+        let new_page_bytes = (pages_to_allocate * MemoryRegion.PageSize) / POINTER_SIZE;
+        ignore MemoryRegion.allocate(self.pointers, new_page_bytes);
+
+        update_prev_pages_allocated(self, pages_to_allocate);
+
+        let new_capacity = buffer_capacity(self);
+
+        let elems_before_start = self.start;
+        let elems_after_start = self.count - elems_before_start;
+
+        if (elems_before_start < elems_after_start) {
+            var i = 0;
+
+            while (i < elems_before_start){
+                swap(self, i, self.count + i);
+                i += 1;
+            };
+        } else {
+            var i = 0;
+
+            while (i < elems_after_start){
+                swap(self, self.count - i - 1, new_capacity - i - 1);
+                i += 1;
+            };
+
+            update_start(self, new_capacity - elems_after_start);
+        };
     };
 
     func _get_memory_blob<A>(self : MemoryBuffer<A>, index : Nat) : Blob {
@@ -235,16 +304,13 @@ module MemoryBuffer {
     };
 
     func add_pointer<A>(self : MemoryBuffer<A>, mb_address : Nat, mb_size : Nat) {
-        let i = self.count;
+        grow_if_needed(self);
+
+        let i = get_circular_index(self, self.count);
         let pointer_address = _get_pointer(self, i);
 
-        if (MemoryRegion.size(self.pointers) >= pointer_address + POINTER_SIZE){
-            MemoryRegion.storeNat64(self.pointers, pointer_address, Nat64.fromNat(mb_address));
-            MemoryRegion.storeNat32(self.pointers, pointer_address + 8, Nat32.fromNat(mb_size));
-        }else {
-            ignore MemoryRegion.addNat64(self.pointers, Nat64.fromNat(mb_address));
-            ignore MemoryRegion.addNat32(self.pointers, Nat32.fromNat(mb_size));
-        };
+        MemoryRegion.storeNat64(self.pointers, pointer_address, Nat64.fromNat(mb_address));
+        MemoryRegion.storeNat32(self.pointers, pointer_address + 8, Nat32.fromNat(mb_size));
     };
 
     func internal_replace<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, new_value : A) {
@@ -261,13 +327,59 @@ module MemoryBuffer {
         MemoryRegion.storeBlob(self.blobs, new_address, new_blob);
     };
 
+    /// Adds a value to the end of the buffer.
+    public func add<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, value : A) {
+        let blob = blobify.to_blob(value);
+        let mb_address = MemoryRegion.addBlob(self.blobs, blob);
+
+        // Debug.print("Value added to mem-block at address = " # debug_show mb_address);
+        grow_if_needed(self);
+        
+        let i = get_circular_index(self, self.count);
+        update_pointer_at_index(self, i, mb_address, blob.size());
+        update_count(self, self.count + 1);
+    };
+
+    /// Adds all the values from the given array to the end of the buffer.
+    public func addFromArray<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, values : [A]) {
+        for (val in values.vals()) {
+            add(self, blobify, val);
+        };
+    };
+
+    /// Adds all the values from the given iterator to the end of the buffer.
+    public func addFromIter<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, iter : Iter<A>) {
+        for (val in iter) {
+            add(self, blobify, val);
+        };
+    };
+
+    /// Adds a value to the beginning of the buffer.
+    public func addFirst<A>(self: MemoryBuffer<A>, blobify: Blobify<A>, value: A) {
+        let blob = blobify.to_blob(value);
+        let mb_address = MemoryRegion.addBlob(self.blobs, blob);
+
+        grow_if_needed(self);
+
+        let i = get_circular_index(self, -1);
+        update_pointer_at_index(self, i, mb_address, blob.size());
+        update_start(self, i);
+        update_count(self, self.count + 1);
+    };
+
+    /// Adds a value to the end of the buffer.
+    public func addLast<A>(self: MemoryBuffer<A>, blobify: Blobify<A>, value: A) {
+        add(self, blobify, value);
+    };  
+
     /// Replaces the value at the given index with the given value.
     public func put<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {
         if (index >= self.count) {
             Debug.trap("MemoryBuffer put(): Index out of bounds");
         };
 
-        internal_replace(self, blobify, index, value);
+        let i = get_circular_index(self, index);
+        internal_replace(self, blobify, i, value);
     };
 
     /// Retrieves the value at the given index if it exists. Otherwise returns null.
@@ -289,7 +401,8 @@ module MemoryBuffer {
     };
 
     func _get<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat) : A {
-        let blob = _get_blob(self, index);
+        let i = get_circular_index(self, index);
+        let blob = _get_blob(self, i);
         let val = blobify.from_blob(blob);
         val
     };
@@ -308,23 +421,6 @@ module MemoryBuffer {
         let size = _get_memory_size(self, index);
         (address, size);
     };
-
-    /// Adds a value to the end of the buffer.
-    public func add<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, value : A) {
-        let blob = blobify.to_blob(value);
-        let mb_address = MemoryRegion.addBlob(self.blobs, blob);
-
-        // Debug.print("Value added to mem-block at address = " # debug_show mb_address);
-
-        add_pointer(self, mb_address, blob.size());
-        update_count(self, self.count + 1);
-    };
-
-    // public func addBatch<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, values_iter : Iter<A>) {
-    //     for (val in values_iter){
-    //         add(self, blobify, val);
-    //     };
-    // };
 
     /// Adds all the values from the given buffer to the end of this buffer.
     public func append<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, other : MemoryBuffer<A>) {
@@ -468,7 +564,8 @@ module MemoryBuffer {
                 return null;
             };
 
-            let address = _get_pointer(self, i);
+            let _index = get_circular_index(self, i);
+            let address = _get_pointer(self, _index);
             i += 1;
             ?address;
         };
@@ -478,7 +575,8 @@ module MemoryBuffer {
                 return null;
             };
 
-            let address = _get_pointer(self, j - 1 : Nat);
+            let _index = get_circular_index(self, j - 1);
+            let address = _get_pointer(self, _index : Nat);
             j -= 1;
             ?address;
         };
@@ -496,8 +594,9 @@ module MemoryBuffer {
                 return null;
             };
 
-            let address = _get_memory_address(self, i);
-            let size = _get_memory_size(self, i);
+            let _index = get_circular_index(self, i);
+            let address = _get_memory_address(self, _index);
+            let size = _get_memory_size(self, _index);
 
             i += 1;
             ?(address, size);
@@ -508,9 +607,9 @@ module MemoryBuffer {
                 return null;
             };
 
-            let index = j - 1 : Nat;
-            let address = _get_memory_address(self, index);
-            let size = _get_memory_size(self, index);
+            let _index = get_circular_index(self, j - 1);
+            let address = _get_memory_address(self, _index);
+            let size = _get_memory_size(self, _index);
             j -= 1;
             ?(address, size);
         };
@@ -520,8 +619,8 @@ module MemoryBuffer {
 
     func shift_pointers<A>(self : MemoryBuffer<A>, start : Nat, end : Nat, n : Int) {
         let start_address = _get_pointer(self, start);
+        if (end <= start ) return;
         let size = (end - start : Nat) * POINTER_SIZE;
-        if (size == 0) return ();
 
         let pointers_blob = MemoryRegion.loadBlob(self.pointers, start_address, size);
 
@@ -559,16 +658,39 @@ module MemoryBuffer {
         };
 
         // Debug.print("Removing value at index = " # debug_show index);
-        let value = remove_val(self, blobify, index);
+        let i = get_circular_index(self, index);
+        let value = remove_val(self, blobify, i);
 
-        // Debug.print("Shifting pointers");
-        shift_pointers(self, index + 1, self.count, -1);
+        let shift_left = index >= self.count / 2;
+        if (shift_left) {
+            // Debug.print("Shifting pointers left");
 
-        // let last_ptr_address = _get_pointer(self, self.count - 1);
-        // MemoryRegion.deallocate(self.pointers, last_ptr_address, POINTER_SIZE);
-        // assert MemoryRegion.allocated(self.pointers) == 64 + (12 * (self.count - 1));
+            let end = get_circular_index(self, self.count);
 
-        // Debug.print("Updating count");
+            if (end < i) { // the buffer is wrapped
+                shift_pointers(self, i + 1, buffer_capacity(self), -1);
+                swap(self, buffer_capacity(self) - 1, 0);
+                shift_pointers(self, 1, end, -1);
+            } else {    
+                shift_pointers(self, i + 1, end, -1);
+            };
+
+        } else {
+            // Debug.print("Shifting pointers right");
+
+            let start = self.start;
+
+            if (i < start) { // the buffer is wrapped
+                shift_pointers(self, 0, i, 1);
+                swap(self, 0, buffer_capacity(self) - 1);
+                shift_pointers(self, start, buffer_capacity(self), 1);
+            } else {
+                shift_pointers(self, start, i, 1);
+            };
+
+            update_start(self, get_circular_index(self, 1));
+        };
+
         update_count(self, self.count - 1 : Nat);
 
         return value;
@@ -590,20 +712,89 @@ module MemoryBuffer {
     //     return RevIter.fromArray(removed_values);
     // };
 
+    public func removeFirst<A>(self: MemoryBuffer<A>, blobify: Blobify<A>) :?A {
+        if (self.count == 0) return null;
+        
+        let value = remove_val(self, blobify, 0);
+
+        update_count(self, self.count - 1);
+        update_start(self, get_circular_index(self, 1));
+
+        ?value;
+    };
+
     /// Removes the last value in the buffer, if it exists. Otherwise returns null.
     public func removeLast<A>(self : MemoryBuffer<A>, blobify : Blobify<A>) : ?A {
         if (self.count == 0) return null;
 
-        ?remove(self, blobify, (self.count - 1) : Nat);
+        let i = get_circular_index(self, self.count - 1);
+        let value = remove_val(self, blobify, i);
+
+        update_count(self, self.count - 1);
+        ?value
+    };
+
+    /// Inserts a value at the given index.
+    public func insert<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {
+
+        if (index > self.count) {
+            Debug.trap("MemoryBuffer: Index out of bounds");
+        };
+
+        grow_if_needed(self);
+
+        var i = get_circular_index(self, index);
+
+        let shift_right = i >= self.count / 2;
+
+        if (shift_right and self.count > 0) {
+            let end = get_circular_index(self, self.count);
+
+            if (end < i) {
+                shift_pointers(self, 0, end, 1);
+                swap(self, 0, buffer_capacity(self) - 1);
+                shift_pointers(self, i, buffer_capacity(self) - 1, 1);
+            } else {
+                shift_pointers(self, i, end, 1);
+            };
+
+        } else if (self.count > 0){
+            let start = self.start;
+
+            if (i < start) {
+                let end = get_circular_index(self, self.count);
+                shift_pointers(self, start, buffer_capacity(self), -1);
+                swap(self, 0, buffer_capacity(self) - 1);
+
+                shift_pointers(self, 1, end, 1);
+            } else {
+                shift_pointers(self, start, i, -1);
+            };
+
+            update_start(self, get_circular_index(self, -1));
+            i := get_circular_index(self, index);
+        };
+
+        let blob = blobify.to_blob(value);
+        assert blob.size() > 0;
+
+        let mb_address = MemoryRegion.addBlob(self.blobs, blob);
+
+        update_pointer_at_index(self, i, mb_address, blob.size());
+
+        update_count(self, self.count + 1);
     };
 
     /// Swaps the values at the given indices.
     public func swap<A>(self : MemoryBuffer<A>, index_a : Nat, index_b : Nat) {
-        let mem_block_a = _get_memory_blob(self, index_a);
-        let mem_block_b = _get_memory_blob(self, index_b);
+        let _index_a = get_circular_index(self, index_a);
+        let _index_b = get_circular_index(self, index_b);
 
-        let ptr_addr_a = _get_pointer(self, index_a);
-        let ptr_addr_b = _get_pointer(self, index_b);
+        let mem_block_a = _get_memory_blob(self, _index_a);
+        let mem_block_b = _get_memory_blob(self, _index_b);
+
+        let ptr_addr_a = _get_pointer(self, _index_a);
+        let ptr_addr_b = _get_pointer(self, _index_b);
 
         MemoryRegion.storeBlob(self.pointers, ptr_addr_a, mem_block_b);
         MemoryRegion.storeBlob(self.pointers, ptr_addr_b, mem_block_a);
@@ -628,15 +819,20 @@ module MemoryBuffer {
 
     /// Clears the buffer.
     public func clear<A>(self : MemoryBuffer<A>) {
-        self.count := 0;
-        // MemoryRegion.clear(self.pointers);
+        update_count(self, 0);
+        update_start(self, 0);
+        update_prev_pages_allocated(self, 0);
+
+        MemoryRegion.clear(self.pointers);
         MemoryRegion.clear(self.blobs);
+
         init_region_header(self);
     };
 
     public func clone<A>(self : MemoryBuffer<A>) : MemoryBuffer<A> {
         let new_buffer = MemoryBuffer.new<A>();
 
+        // need to replace with reserve()
         ignore MemoryRegion.allocate(new_buffer.pointers, 12 * self.count);
 
         for ((i, blob) in Itertools.enumerate(blobs(self))) {
@@ -647,29 +843,6 @@ module MemoryBuffer {
         };
 
         new_buffer;
-    };
-
-    /// Inserts a value at the given index.
-    public func insert<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, index : Nat, value : A) {
-
-        if (index > self.count) {
-            Debug.trap("MemoryBuffer: Index out of bounds");
-        };
-
-        if (MemoryRegion.size(self.pointers) < 64 + (POINTER_SIZE * (self.count + 1))){
-            ignore MemoryRegion.allocate(self.pointers, 12); // add space for new pointer
-        };
-
-        shift_pointers(self, index, self.count, 1);
-
-        let blob = blobify.to_blob(value);
-        assert blob.size() > 0;
-
-        let mb_address = MemoryRegion.addBlob(self.blobs, blob);
-        // Debug.print("inserted mb_address = " # debug_show mb_address);
-        update_pointer_at_index(self, index, mb_address, blob.size());
-
-        update_count(self, self.count + 1);
     };
 
     // public func insertBatch<A>(self: MemoryBuffer<A>, blobify: Blobify<A>, index: Nat, batch_size: Nat, values_iter: Iter<A>) {
@@ -699,7 +872,9 @@ module MemoryBuffer {
     //     update_count(self, self.count + batch_size);
     // };
 
-    // quick sort
+    /// Sorts the values in the buffer in ascending order.
+    /// This is an implementation of the quicksort algorithm.
+    /// The algorithm is unstable and has an average time complexity of O(n log n).
     public func sortUnstable<A>(self : MemoryBuffer<A>, blobify : Blobify<A>, mem_cmp : MemoryCmp.MemoryCmp<A>) {
         if (self.count == 0) return;
 
@@ -709,8 +884,8 @@ module MemoryBuffer {
             };
 
             // select middle element as pivot
-            // let mid = (start + end) / 2;
-            // swap(mbuffer, start, mid);
+            let mid = (start + end) / 2;
+            swap(mbuffer, start, mid);
 
             var pivot = start;
             var i = start + 1;
@@ -720,8 +895,8 @@ module MemoryBuffer {
 
                 let ord = switch(mem_cmp){
                     case (#blob_cmp(cmp)) {
-                        let elem : Blob = _get_blob(mbuffer, index);
-                        let pivot_elem : Blob = _get_blob(mbuffer, pivot);
+                        let elem : Blob = _get_blob(mbuffer, get_circular_index(self, index));
+                        let pivot_elem : Blob = _get_blob(mbuffer, get_circular_index(self, pivot));
                         cmp(elem, pivot_elem);
                     };
                     case (#cmp(cmp)){
@@ -753,10 +928,9 @@ module MemoryBuffer {
 
     };
 
-
     /// Randomizes the order of the values in the buffer.
     public func shuffle<A>(self : MemoryBuffer<A>) {
-        // shuffle utility functions ported from https://mops.one/fuzz for performance reasons
+        // shuffle utility functions ported from https://mops.one/fuzz for better performance
         
         if (self.count == 0) return;
 
@@ -788,6 +962,58 @@ module MemoryBuffer {
             i += 1;
         };
 
+    };
+
+    public func indexOf<A>(self: MemoryBuffer<A>, blobify: Blobify<A>, equal: (A, A) -> Bool, element: A) : ?Nat {
+        for ((i, value) in items(self, blobify)) {
+            if (equal(value, element)) {
+                return ?i;
+            };
+        };
+
+        return null;
+    };
+
+    public func lastIndexOf<A>(self: MemoryBuffer<A>, blobify: Blobify<A>, equal: (A, A) -> Bool, element: A) : ?Nat {
+        for ((i, value) in items(self, blobify).rev()) {
+            if (equal(value, element)) {
+                return ?i;
+            };
+        };
+
+        return null;
+    };
+
+    public func contains<A>(self: MemoryBuffer<A>, blobify: Blobify<A>, equal: (A, A) -> Bool, element: A) : Bool {
+        for (value in vals(self, blobify)) {
+            if (equal(value, element)) {
+                return true;
+            };
+        };
+
+        return false;
+    };
+
+    public func isEmpty<A>(self: MemoryBuffer<A>) : Bool {
+        self.count == 0;
+    };
+
+    public func first<A>(self: MemoryBuffer<A>, blobify: Blobify<A>) : A {
+        if (self.count == 0) return Debug.trap("MemoryBuffer first(): Buffer is empty");
+        get(self, blobify, 0);
+    };
+
+    public func last<A>(self: MemoryBuffer<A>, blobify: Blobify<A>) : A {
+        if (self.count == 0) return Debug.trap("MemoryBuffer last(): Buffer is empty");
+        get(self, blobify, self.count - 1);
+    };
+
+    public func peekFirst<A>(self: MemoryBuffer<A>, blobify: Blobify<A>) : ?A {
+        getOpt(self, blobify, 0);
+    };
+
+    public func peekLast<A>(self: MemoryBuffer<A>, blobify: Blobify<A>) : ?A {
+        getOpt(self, blobify, self.count - 1);
     };
 
     /// Converts a memory buffer to an array.

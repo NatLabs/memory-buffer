@@ -39,6 +39,7 @@ module {
         loop {
             switch (Branch.get_node_type(btree, curr_address)) {
                 case (#leaf) {
+                    // assert Leaf.validate(btree, curr_address);
                     Leaf.add_to_cache(btree, curr_address);
                     return curr_address;
                 };
@@ -46,6 +47,7 @@ module {
                     // load breanch from stable memory
                     // and add it to the cache
                     Branch.add_to_cache(btree, curr_address);
+                    // assert MemoryRegion.loadBlob(btree.metadata, curr_address, Branch.MC.MAGIC_SIZE) == Branch.MC.MAGIC;
 
                     let count = Branch.get_count(btree, curr_address);
 
@@ -68,6 +70,51 @@ module {
 
                     let child_index = if (int_index >= 0) Int.abs(int_index) + 1 else Int.abs(int_index + 1);
                     let ?child_address = Branch.get_child(btree, curr_address, child_index) else Debug.trap("get_leaf_node: accessed a null value");
+                    curr_address := child_address;
+                };
+            };
+        };
+    };
+
+    public func get_leaf_address_and_update_path<K, V>(btree : MemoryBTree, btree_utils : BTreeUtils<K, V>, key : K, _opt_key_blob : ?Blob, update : (MemoryBTree, Nat, Nat) -> ()) : Nat {
+        var curr_address = btree.root;
+        var opt_key_blob : ?Blob = _opt_key_blob;
+
+        loop {
+            switch (Branch.get_node_type(btree, curr_address)) {
+                case (#leaf) {
+                    // assert Leaf.validate(btree, curr_address);
+                    Leaf.add_to_cache(btree, curr_address);
+                    return curr_address;
+                };
+                case (#branch) {
+                    // load breanch from stable memory
+                    // and add it to the cache
+                    Branch.add_to_cache(btree, curr_address);
+                    // assert MemoryRegion.loadBlob(btree.metadata, curr_address, Branch.MC.MAGIC_SIZE) == Branch.MC.MAGIC;
+
+                    let count = Branch.get_count(btree, curr_address);
+
+                    let int_index = switch (btree_utils.cmp) {
+                        case (#cmp(cmp)) Branch.binary_search<K, V>(btree, btree_utils, curr_address, cmp, key, count - 1);
+                        case (#blob_cmp(cmp)) {
+
+                            let key_blob = switch (opt_key_blob) {
+                                case (null) {
+                                    let key_blob = btree_utils.key.to_blob(key);
+                                    opt_key_blob := ?key_blob;
+                                    key_blob;
+                                };
+                                case (?key_blob) key_blob;
+                            };
+
+                            Branch.binary_search_blob_seq(btree, curr_address, cmp, key_blob, count - 1);
+                        };
+                    };
+
+                    let child_index = if (int_index >= 0) Int.abs(int_index) + 1 else Int.abs(int_index + 1);
+                    let ?child_address = Branch.get_child(btree, curr_address, child_index) else Debug.trap("get_leaf_node: accessed a null value");
+                    update(btree, curr_address, child_index);
                     curr_address := child_address;
                 };
             };
@@ -453,6 +500,7 @@ module {
                     func(i : Nat) : ?(K, V) {
                         if (i >= count) return null;
 
+                        // Debug.print("(address, i) -> " # debug_show (leaf_address, i));
                         let ?(key, val) = Leaf.get_kv_blobs(btree, leaf_address, i) else Debug.trap("leaf_nodes: accessed a null value");
                         ?(btree_utils.key.from_blob(key), btree_utils.val.from_blob(val));
                     },

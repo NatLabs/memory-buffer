@@ -124,14 +124,6 @@ Benchmarking the performance with 10k `Nat` entries
 | blobSortUnstable()  |     8_992 |                  18_777_960 |                      25_562_276 |
 
 
-#### Allocated Stable Memory Bytes
-
-|                  | MemoryBuffer (with Blobify)                                                                                                                           | MemoryBuffer (encode to candid)                                                                                                                        |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| add()            | bytes:                         35_720<br>metadataBytes:       120_064<br>capacity:                    65_536<br>metadataCapacity:  131_072            | bytes:                         108_475<br>metadataBytes:        120_064<br>capacity:                    131_072<br>metadataCapacity:   131_072         |
-| put () new > old | bytes:                         48_143<br>metadataBytes:       120_064<br>capacity:                    65_536<br>metadataCapacity:  131_072            | bytes:                         126_007<br>metadataBytes:        120_064<br>capacity:                   196_608<br>metadataCapacity:   131_072          |
-| put () new < old | bytes:                         19_809<br>metadataBytes:       120_064<br>capacity:                    65_536<br>metadataCapacity:  131_072            | bytes:                          89_936<br>metadataBytes:        120_064<br>capacity:                   196_608<br>metadataCapacity:   131_072          |
-| remove()         | bytes:                                  64<br>metadataBytes:                 64<br>capacity:                    65_536<br>metadataCapacity:   131_072 | bytes:                                  64<br>metadataBytes:                  64<br>capacity:                   196_608<br>metadataCapacity:   131_072 |
 > Generate benchmarks by running `mops bench` in the project directory.
 
 Encoding to Candid is more efficient than using a custom encoding function.

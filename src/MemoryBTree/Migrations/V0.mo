@@ -46,7 +46,7 @@ module {
         keys_blobs : [var ?Blob],
     );
 
-    public type BTreeUtils<K, V> = (
+    public type MemoryUtils<K, V> = (
         key : Blobify<K>,
         value : Blobify<V>,
         cmp : MemoryCmp<K>,
@@ -71,10 +71,10 @@ module {
         var leaf_count : Nat; // number of leaf nodes
 
         metadata : MemoryRegionV1;
+        blocks : MemoryRegionV1;
         blobs : MemoryRegionV1;
 
         nodes_cache : LruCache<Address, Node>;
-        key_cache : LruCache<Address, Blob>;
     };
 
 

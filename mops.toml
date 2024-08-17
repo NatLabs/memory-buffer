@@ -1,24 +1,14 @@
 [package]
 name = "memory-buffer"
-version = "0.1.0"
+version = "0.0.2"
 description = "A persistent buffer implementation in motoko."
 repository = "https://github.com/NatLabs/memory-buffer"
-keywords = [ "region", "buffer", "persistent", "collections", "encoding" ]
+keywords = ["region", "buffer", "persistent", "collections", "encoding"]
 
 [dependencies]
-base = "0.11.1"
-itertools = "0.2.1"
-memory-region = "1.1.1"
-lru-cache = "1.0.0"
-MotokoStableBTree = "https://github.com/sardariuss/MotokoStableBTree#master@b590ede4489c2d4b2189299c3a2cc35dc4faa3fc"
-buffer-deque = "0.1.0"
+base = "0.10.2"
+memory-region = "0.1.0"
 
 [dev-dependencies]
-test = "2.0.0"
+test = "1.0.1"
 bench = "1.0.0"
-fuzz = "0.2.1"
-augmented-btrees = "0.5.0"
-
-[toolchain]
-wasmtime = "14.0.4"
-moc = "0.11.1"

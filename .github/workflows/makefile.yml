@@ -1,6 +1,6 @@
 name: Makefile CI
 
-on: 
+on:
   push:
     branches:
       - main
@@ -35,13 +35,9 @@ jobs:
             ~/.cache/mops
             ~/mops
 
-      - name: Install dfx
-        uses: dfinity/setup-dfx@main
-      - name: Confirm successful installation
-        run: dfx --version
-    
-      - name: Install dfx cache
-        run: dfx cache install
+      - uses: aviate-labs/setup-dfx@v0.2.3
+        with:
+          dfx-version: 0.15.1
 
       - name: Install mops & mocv
         run: |
@@ -52,9 +48,9 @@ jobs:
 
           # set moc path for dfx to use
           echo "DFX_MOC_PATH=$(mops toolchain bin moc)" >> $GITHUB_ENV
-    
+
       # - name: Detect warnings
-        # run: make check
+      #   run: make check
 
       - name: Run Tests
-        run: make test
+        run: mops test

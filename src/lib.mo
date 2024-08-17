@@ -1,21 +1,15 @@
-import BlobifyModule "Blobify";
-import MemoryBufferModule "MemoryBuffer/Base";
-import MemoryBufferClassModule "MemoryBuffer/Class";
-import VersionedMemoryBufferModule "MemoryBuffer/Versioned";
+import Debug "mo:base/Debug";
+import Array "mo:base/Array";
+import Iter "mo:base/Iter";
 
-import MemoryBTreeModule "MemoryBTree/Base";
-import MemoryBTreeClassModule "MemoryBTree/Class";
-import VersionedMemoryBTreeModule "MemoryBTree/Versioned";
+import MemoryRegion "mo:memory-region/MemoryRegion";
+
+import Utils "Utils";
+import BlobifyModule "Blobify";
+import MemoryBufferModule "MemoryBuffer";
 
 module {
     public let MemoryBuffer = MemoryBufferModule;
-    public let MemoryBufferClass = MemoryBufferClassModule;
-    public let VersionedMemoryBuffer = VersionedMemoryBufferModule;
-
-    public type MemoryBuffer<A> = MemoryBufferModule.MemoryBuffer<A>;
-    public type MemoryBufferClass<A> = MemoryBufferClassModule.MemoryBufferClass<A>;
-    public type VersionedMemoryBuffer<A> = VersionedMemoryBufferModule.VersionedMemoryBuffer<A>;
-
     public type Blobify<A> = BlobifyModule.Blobify<A>;
     public let Blobify = BlobifyModule;
 

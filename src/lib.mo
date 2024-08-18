@@ -13,12 +13,4 @@ module {
     public type Blobify<A> = BlobifyModule.Blobify<A>;
     public let Blobify = BlobifyModule;
 
-    public type MemoryBTree = MemoryBTreeModule.MemoryBTree;
-    public let MemoryBTree = MemoryBTreeModule;
-
-    public type MemoryBTreeClass<K, V> = MemoryBTreeClassModule.MemoryBTreeClass<K, V>;
-    public let MemoryBTreeClass = MemoryBTreeClassModule;
-
-    public type VersionedMemoryBTree = VersionedMemoryBTreeModule.VersionedMemoryBTree;
-    public let VersionedMemoryBTree = VersionedMemoryBTreeModule;
 };
